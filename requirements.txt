@@ -1,0 +1,5 @@
+openai>=1.30.0
+requests>=2.32.0
+python-dotenv>=1.0.1
+akshare>=1.14.0
+pydantic>=2.7.0

@@ -1,0 +1,16 @@
+{
+  "style": "long_term_3m",
+  "check_interval_minutes": 5,
+  "send_only_on_action": true,
+  "boards_allowed": ["main", "star"],
+  "markets_allowed": ["A"],
+  "max_same_signal_cooldown_minutes": 180,
+  "risk_rules": {
+    "market_drop_alert_pct": -2.0,
+    "position_breakdown_pct": -8.0
+  },
+  "opportunity_rules": {
+    "max_new_buy_weight": 0.1,
+    "max_add_weight": 0.05
+  }
+}

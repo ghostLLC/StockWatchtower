@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Stock Watchtower 控制面板</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #131a2d;
+      --panel-2: #1a2340;
+      --text: #eef3ff;
+      --muted: #9fb0d0;
+      --line: #2a365d;
+      --brand: #4f8cff;
+      --brand-2: #79a7ff;
+      --danger: #ff6b6b;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", sans-serif;
+      background: linear-gradient(180deg, #09101d, #0d1326 40%, #0b1020 100%);
+      color: var(--text);
+    }
+    .wrap {
+      max-width: 1360px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+    .hero {
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: rgba(19, 26, 45, 0.92);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.25);
+    }
+    h1, h2, h3 { margin: 0; }
+    h1 { font-size: 30px; margin-bottom: 8px; }
+    .sub { color: var(--muted); line-height: 1.6; }
+    .badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
+    .badge {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #18213c;
+      border: 1px solid #2e3d67;
+      color: #dce6ff;
+      font-size: 13px;
+    }
+    .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+    button {
+      border: 0;
+      border-radius: 12px;
+      padding: 10px 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.15s ease, opacity 0.15s ease;
+    }
+    button:hover { transform: translateY(-1px); }
+    .primary { background: var(--brand); color: white; }
+    .secondary { background: #202a4a; color: white; }
+    .danger { background: #3a1f27; color: #ffc7cf; border: 1px solid #6a2e39; }
+    .ok { background: #193626; color: #b7f8ce; border: 1px solid #285840; }
+    .grid {
+      display: grid;
+      grid-template-columns: 1.1fr 1.1fr 0.9fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .task-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .mini {
+      background: var(--panel-2);
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .status.ok { background: rgba(34,197,94,.12); color: #8af0b1; }
+    .status.warn { background: rgba(245,158,11,.12); color: #ffd27a; }
+    .status.off { background: rgba(255,107,107,.12); color: #ffb3b3; }
+    .kv { margin-top: 12px; color: var(--muted); line-height: 1.9; font-size: 14px; }
+    .editor-card textarea {
+      width: 100%;
+      min-height: 250px;
+      margin-top: 12px;
+      border-radius: 14px;
+      border: 1px solid #33426f;
+      background: #0d1427;
+      color: #edf3ff;
+      padding: 14px;
+      font: 13px/1.6 Consolas, "Courier New", monospace;
+      resize: vertical;
+    }
+    .editor-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .reports {
+      display: grid;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .report-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px;
+      border-radius: 14px;
+      background: #12192d;
+      border: 1px solid var(--line);
+    }
+    .report-item a { color: var(--brand-2); text-decoration: none; }
+    .log {
+      margin-top: 12px;
+      white-space: pre-wrap;
+      min-height: 120px;
+      max-height: 280px;
+      overflow: auto;
+      padding: 14px;
+      border-radius: 14px;
+      border: 1px solid var(--line);
+      background: #0b1122;
+      color: #d7e3ff;
+      font: 13px/1.6 Consolas, monospace;
+    }
+    .muted { color: var(--muted); }
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    @media (max-width: 1080px) {
+      .hero, .grid { grid-template-columns: 1fr; }
+      .task-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <section class="card">
+        <h1>Stock Watchtower 控制面板</h1>
+        <p class="sub">以后你不用再钻进代码里开关和改配置。这里可以直接看计划任务状态、手动执行一次巡检、保存持仓/观察池/策略配置，以及查看最近生成的巡检报告。</p>
+        <div class="badges">
+          <span class="badge" id="envBadge">ENV：检查中</span>
+          <span class="badge">市场：A股</span>
+          <span class="badge">风格：3个月长期</span>
+          <span class="badge">巡检频率：开盘时每5分钟</span>
+        </div>
+        <div class="actions">
+          <button class="primary" id="refreshBtn">刷新状态</button>
+          <button class="secondary" id="runOnceBtn">立即巡检一次</button>
+          <button class="primary" id="saveBtn">保存全部配置</button>
+        </div>
+        <div class="log" id="actionLog">这里会显示手动巡检、计划任务开关和保存配置的结果。</div>
+      </section>
+      <section class="card">
+        <div class="section-title">
+          <h2>计划任务状态</h2>
+          <span class="muted">不用手敲 schtasks 了</span>
+        </div>
+        <div class="task-grid">
+          <div class="mini">
+            <h3>上午盘</h3>
+            <div id="amStatus" class="status warn">加载中</div>
+            <div class="kv" id="amInfo"></div>
+            <div class="actions">
+              <button class="ok" data-task="am" data-action="enable">开启</button>
+              <button class="danger" data-task="am" data-action="disable">关闭</button>
+              <button class="secondary" data-task="am" data-action="run">立即运行</button>
+            </div>
+          </div>
+          <div class="mini">
+            <h3>下午盘</h3>
+            <div id="pmStatus" class="status warn">加载中</div>
+            <div class="kv" id="pmInfo"></div>
+            <div class="actions">
+              <button class="ok" data-task="pm" data-action="enable">开启</button>
+              <button class="danger" data-task="pm" data-action="disable">关闭</button>
+              <button class="secondary" data-task="pm" data-action="run">立即运行</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="grid">
+      <section class="card editor-card">
+        <div class="editor-head">
+          <div>
+            <h2>持仓配置</h2>
+            <div class="muted">这里填你的真实持仓、仓位、建仓日期、持仓逻辑。</div>
+          </div>
+        </div>
+        <textarea id="portfolioEditor"></textarea>
+      </section>
+
+      <section class="card editor-card">
+        <div class="editor-head">
+          <div>
+            <h2>观察池配置</h2>
+            <div class="muted">股票代码、板块、理由都能直接改。</div>
+          </div>
+        </div>
+        <textarea id="watchlistEditor"></textarea>
+      </section>
+
+      <section class="card editor-card">
+        <div class="editor-head">
+          <div>
+            <h2>策略配置</h2>
+            <div class="muted">可以直接调巡检频率、风控阈值和板块集中度。</div>
+          </div>
+        </div>
+        <textarea id="strategyEditor"></textarea>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top: 16px;">
+      <div class="section-title">
+        <h2>最近巡检报告</h2>
+        <span class="muted">点开就能看本次巡检结论</span>
+      </div>
+      <div class="reports" id="reportsList"></div>
+    </section>
+  </div>
+
+  <script>
+    const state = {
+      configs: null,
+      tasks: null,
+      reports: [],
+    };
+
+    const editors = {
+      portfolio: document.getElementById('portfolioEditor'),
+      watchlist: document.getElementById('watchlistEditor'),
+      strategy: document.getElementById('strategyEditor'),
+    };
+
+    function log(message) {
+      const el = document.getElementById('actionLog');
+      const now = new Date().toLocaleString('zh-CN', { hour12: false });
+      el.textContent = `[${now}] ${message}\n\n` + el.textContent;
+    }
+
+    function pretty(value) {
+      return JSON.stringify(value, null, 2);
+    }
+
+    function taskBadge(task) {
+      if (!task || !task.exists) {
+        return { text: '未找到任务', cls: 'off' };
+      }
+      if (!task.enabled) {
+        return { text: '已关闭', cls: 'off' };
+      }
+      if ((task.status || '').toLowerCase().includes('ready')) {
+        return { text: '已开启', cls: 'ok' };
+      }
+      return { text: task.status || '未知', cls: 'warn' };
+    }
+
+    function renderTasks(tasks) {
+      ['am', 'pm'].forEach((key) => {
+        const task = tasks[key];
+        const badge = taskBadge(task);
+        const statusEl = document.getElementById(`${key}Status`);
+        statusEl.className = `status ${badge.cls}`;
+        statusEl.textContent = badge.text;
+        document.getElementById(`${key}Info`).innerHTML = [
+          `下次运行：${task?.next_run || '-'}`,
+          `上次运行：${task?.last_run || '-'}`,
+          `最近结果：${task?.last_result || '-'}`,
+          `重复频率：${task?.repeat || '-'}`,
+          `持续时长：${task?.duration || '-'}`,
+        ].join('<br>');
+      });
+    }
+
+    function renderReports(reports) {
+      const container = document.getElementById('reportsList');
+      container.innerHTML = reports.length
+        ? reports.map((item) => `
+          <div class="report-item">
+            <div>
+              <div><strong>${item.name}</strong></div>
+              <div class="muted">${new Date(item.modified * 1000).toLocaleString('zh-CN', { hour12: false })}</div>
+            </div>
+            <a href="${item.path}" target="_blank">打开报告</a>
+          </div>
+        `).join('')
+        : '<div class="muted">暂无报告。</div>';
+    }
+
+    async function refreshState() {
+      const res = await fetch('/api/state');
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.message || '加载失败');
+      state.configs = data.configs;
+      state.tasks = data.tasks;
+      state.reports = data.reports;
+      editors.portfolio.value = pretty(data.configs.portfolio);
+      editors.watchlist.value = pretty(data.configs.watchlist);
+      editors.strategy.value = pretty(data.configs.strategy);
+      renderTasks(data.tasks);
+      renderReports(data.reports);
+      document.getElementById('envBadge').textContent = data.env_exists ? 'ENV：已配置' : 'ENV：未配置';
+      log('状态已刷新。');
+    }
+
+    async function saveConfigs() {
+      const payload = {
+        portfolio: JSON.parse(editors.portfolio.value),
+        watchlist: JSON.parse(editors.watchlist.value),
+        strategy: JSON.parse(editors.strategy.value),
+      };
+      const res = await fetch('/api/configs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.message || '保存失败');
+      log('配置已保存。');
+      await refreshState();
+    }
+
+    async function runOnce() {
+      const res = await fetch('/api/run-once', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.message || '巡检失败');
+      log(`已手动执行一次巡检。\nstdout: ${data.result.stdout || '-'}\nstderr: ${data.result.stderr || '-'}`);
+      await refreshState();
+    }
+
+    async function handleTaskAction(task, action) {
+      const res = await fetch('/api/task-action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task, action }),
+      });
+      const data = await res.json();
+      if (!data.ok || !data.result.ok) {
+        throw new Error(data.message || data.result?.stderr || '任务操作失败');
+      }
+      log(`任务 ${task} 已执行 ${action}。\n${data.result.stdout || data.result.stderr || ''}`);
+      await refreshState();
+    }
+
+    document.getElementById('refreshBtn').addEventListener('click', () => refreshState().catch(err => log(`刷新失败：${err.message}`)));
+    document.getElementById('saveBtn').addEventListener('click', () => saveConfigs().catch(err => log(`保存失败：${err.message}`)));
+    document.getElementById('runOnceBtn').addEventListener('click', () => runOnce().catch(err => log(`手动巡检失败：${err.message}`)));
+    document.querySelectorAll('[data-task]').forEach((button) => {
+      button.addEventListener('click', () => handleTaskAction(button.dataset.task, button.dataset.action).catch(err => log(`任务操作失败：${err.message}`)));
+    });
+
+    refreshState().catch(err => log(`初始化失败：${err.message}`));
+  </script>
+</body>
+</html>
