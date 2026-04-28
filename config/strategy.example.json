@@ -24,6 +24,10 @@
     "temperature": 0.3,
     "max_tokens": 4000
   },
+  "alert_rules": {
+    "intraday_crash_pct": -5.0,
+    "volume_spike_ratio": 3.0
+  },
   "risk_rules": {
     "market_drop_alert_pct": -2.0,
     "position_breakdown_pct": -8.0,
@@ -42,5 +46,9 @@
     "max_position_count": 6,
     "max_tech_weight": 0.55,
     "max_sector_weight": 0.35
+  },
+  "monitoring": {
+    "north_flow_enabled": true,
+    "dragon_tiger_enabled": true
   }
 }

@@ -236,6 +236,8 @@ def _build_symbol_snapshot(item: dict[str, Any], realtime_map: dict[str, dict[st
     ma20 = None
     price_vs_ma20_pct = 0.0
     monthly_change_pct = 0.0
+    avg_turnover = None
+    volume_ratio = None
     if not daily.empty and "收盘" in daily.columns:
         closes = daily["收盘"].astype(float)
         ma20 = round(closes.tail(20).mean(), 2) if len(closes) >= 20 else round(closes.mean(), 2)
@@ -244,6 +246,13 @@ def _build_symbol_snapshot(item: dict[str, Any], realtime_map: dict[str, dict[st
             price_vs_ma20_pct = round((latest_close - ma20) / ma20 * 100, 2)
         if len(closes) >= 20:
             monthly_change_pct = round((latest_close - float(closes.iloc[-20])) / float(closes.iloc[-20]) * 100, 2)
+        if "成交额" in daily.columns:
+            amounts = daily["成交额"].astype(float).tail(20)
+            if len(amounts) >= 5:
+                avg_turnover = round(amounts.mean(), 2)
+                today_amount = float(realtime.get("turnover")) if realtime.get("turnover") is not None else None
+                if avg_turnover and avg_turnover > 0 and today_amount and today_amount > 0:
+                    volume_ratio = round(today_amount / avg_turnover, 2)
 
     return {
         "code": symbol,
@@ -259,6 +268,8 @@ def _build_symbol_snapshot(item: dict[str, Any], realtime_map: dict[str, dict[st
         "latest": realtime.get("latest"),
         "change_pct": realtime.get("change_pct", 0.0),
         "turnover": realtime.get("turnover"),
+        "avg_turnover": avg_turnover,
+        "volume_ratio": volume_ratio,
         "amplitude": realtime.get("amplitude", 0.0),
         "high": realtime.get("high"),
         "low": realtime.get("low"),

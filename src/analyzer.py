@@ -227,6 +227,7 @@ def _append_position_management_decisions(
 ) -> None:
     risk_rules = strategy.get("risk_rules", {})
     opportunity_rules = strategy.get("opportunity_rules", {})
+    alert_rules = strategy.get("alert_rules", {})
     market_state = snapshot.get("market_state", "neutral")
 
     position_breakdown_pct = float(risk_rules.get("position_breakdown_pct", -8.0))
@@ -234,6 +235,8 @@ def _append_position_management_decisions(
     trailing_take_profit_pct = float(risk_rules.get("trailing_take_profit_pct", 12.0))
     hard_take_profit_pct = float(risk_rules.get("hard_take_profit_pct", 18.0))
     max_add_weight = float(opportunity_rules.get("max_add_weight", 0.05))
+    intraday_crash_pct = float(alert_rules.get("intraday_crash_pct", -5.0))
+    volume_spike_ratio = float(alert_rules.get("volume_spike_ratio", 3.0))
 
     for pos in positions:
         weight = _position_weight(pos)
@@ -244,6 +247,46 @@ def _append_position_management_decisions(
         price_vs_ma20 = float(pos.get("price_vs_ma20_pct", 0.0))
         name = pos.get("name", pos.get("code", "UNKNOWN"))
         sector = _sector_name(pos)
+        vol_ratio = pos.get("volume_ratio")
+
+        # ── Intraday crash: trigger immediately regardless of other checks ──
+        if change_pct <= intraday_crash_pct and change_pct != 0.0:
+            decisions.append(
+                _make_decision(
+                    action="alert",
+                    symbol=pos.get("code", "UNKNOWN"),
+                    summary=f"日内急跌告警 - {name}",
+                    reason=f"{name} 当前跌幅 {change_pct:.2f}%，已触发日内急跌阈值 {intraday_crash_pct}%，请立即关注是否止损或减仓。",
+                    urgency="high",
+                    suggested_weight_change=-max_add_weight,
+                    price_zone=_format_price_zone(pos.get("latest")),
+                    current_weight=weight,
+                    sector=sector,
+                    execution_plan="优先查看基本面/消息面是否有突发利空，若利空确认应果断减仓；若无明显利空，可观察20日均线支撑再决定。",
+                    invalidation_rule="若跌幅快速收窄至阈值以内且收复分时均线，可取消本告警。",
+                    risk_note="急跌往往伴随流动性收缩，减仓执行时注意滑点。",
+                )
+            )
+
+        # ── Volume spike: unusual activity warning ──
+        if vol_ratio is not None and vol_ratio >= volume_spike_ratio:
+            direction = "放量上涨" if change_pct > 0 else "放量下跌"
+            decisions.append(
+                _make_decision(
+                    action="alert",
+                    symbol=pos.get("code", "UNKNOWN"),
+                    summary=f"异常放量告警 - {name}",
+                    reason=f"{name} 当前成交额为20日均量的 {vol_ratio:.1f} 倍（{direction}），出现异常放量，需判断是大资金进出还是事件驱动。",
+                    urgency="high" if change_pct < -2.0 else "medium",
+                    suggested_weight_change=0.0,
+                    price_zone=_format_price_zone(pos.get("latest")),
+                    current_weight=weight,
+                    sector=sector,
+                    execution_plan="先观察放量方向能否持续：若放量上涨且站稳分时均线，可能是突破信号；若放量下跌，应警惕机构出货。",
+                    invalidation_rule="若成交量快速回归正常水平，则取消本告警。",
+                    risk_note="异常放量往往是行情的转折点，不要急于反向操作。",
+                )
+            )
 
         if market_state == "risk_off":
             decisions.append(
@@ -469,19 +512,21 @@ def _build_llm_prompt(
     for pos in positions:
         thesis = pos.get("thesis", "")
         thesis_str = f", 持仓逻辑={thesis}" if thesis else ""
+        vol_info = f", 量比(20日均)={pos.get('volume_ratio')}" if pos.get("volume_ratio") is not None else ""
         position_lines.append(
             f"- {pos.get('code')} {pos.get('name')}: "
             f"最新价={_v(pos.get('latest'))}, 当日涨跌={_v(pos.get('change_pct'))}%, "
-            f"距MA20={_v(pos.get('price_vs_ma20_pct'))}%, 近20日涨幅={_v(pos.get('monthly_change_pct'))}%, "
+            f"距MA20={_v(pos.get('price_vs_ma20_pct'))}%, 近20日涨幅={_v(pos.get('monthly_change_pct'))}%{vol_info}, "
             f"行业={_v(pos.get('sector', ''))}, 板块={_v(pos.get('board'))}{thesis_str}"
         )
 
     watch_items = market_snapshot.get("watchlist", [])
     watch_lines = []
     for item in watch_items:
+        vol_info = f", 量比(20日均)={item.get('volume_ratio')}" if item.get("volume_ratio") is not None else ""
         watch_lines.append(
             f"- {item.get('code')} {item.get('name')}: "
-            f"最新价={_v(item.get('latest'))}, 当日涨跌={_v(item.get('change_pct'))}%, "
+            f"最新价={_v(item.get('latest'))}, 当日涨跌={_v(item.get('change_pct'))}%{vol_info}, "
             f"距MA20={_v(item.get('price_vs_ma20_pct'))}%, 近20日涨幅={_v(item.get('monthly_change_pct'))}%, "
             f"行业={_v(item.get('sector', ''))}, 板块={_v(item.get('board'))}, 关注理由={_v(item.get('reason', ''))}"
         )
@@ -501,9 +546,22 @@ def _build_llm_prompt(
     stock_news = news_context.get("stock_news", {})
     stock_news_lines = []
     for symbol, items in stock_news.items():
-        if items:
-            titles = "；".join(item.get("title", "") for item in items[:3])
+        if titles := "；".join(item.get("title", "") for item in items[:3]):
             stock_news_lines.append(f"- {symbol}: {titles}")
+
+    north_flow = news_context.get("north_flow", {})
+    north_flow_str = north_flow.get("summary", "") if north_flow else ""
+
+    dragon_tiger = news_context.get("dragon_tiger", [])
+    dragon_tiger_lines = []
+    for item in dragon_tiger:
+        buy = item.get("buy_amount", 0)
+        sell = item.get("sell_amount", 0)
+        net = buy - sell
+        tag = "净买入" if net > 0 else "净卖出" if net < 0 else "均衡"
+        dragon_tiger_lines.append(
+            f"- {item.get('code', '')} {item.get('name', '')}: {tag} {abs(net):.0f}万（买{buy:.0f}/卖{sell:.0f}）"
+        )
 
     risk_rules = strategy.get("risk_rules", {})
     portfolio_rules = strategy.get("portfolio_rules", {})
@@ -529,6 +587,12 @@ def _build_llm_prompt(
 
 ## 个股相关新闻
 {chr(10).join(stock_news_lines) if stock_news_lines else '无数据'}
+
+## 北向资金流向
+{north_flow_str if north_flow_str else '无数据'}
+
+## 龙虎榜匹配
+{chr(10).join(dragon_tiger_lines) if dragon_tiger_lines else '无匹配'}
 
 ## 策略参数与风控规则
 - 持仓风格: {strategy.get('style', '')}

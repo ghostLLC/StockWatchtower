@@ -107,6 +107,63 @@ def fetch_stock_news(symbols: list[str], limit: int = 5) -> dict[str, list[dict[
     return result
 
 
+def fetch_dragon_tiger_matches(
+    portfolio: dict[str, Any], watchlist: dict[str, Any]
+) -> list[dict[str, Any]]:
+    try:
+        df = ak.stock_lhb_detail_em()
+    except Exception:
+        return []
+
+    if df is None or df.empty:
+        return []
+
+    cols = list(df.columns)
+    code_col = None
+    name_col = None
+    for c in cols:
+        c_str = str(c)
+        if "代码" in c_str:
+            code_col = c
+        if "名称" in c_str and code_col != c:
+            name_col = c
+
+    positions = portfolio.get("positions", [])
+    watch_items = watchlist.get("watchlist", [])
+    tracked_codes: set[str] = set()
+    for item in positions + watch_items:
+        code = item.get("code", "")
+        if code:
+            tracked_codes.add(code.split(".", 1)[0])
+
+    matches: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        row_code = str(row.get(code_col, "")) if code_col else ""
+        if not row_code:
+            continue
+        if row_code not in tracked_codes:
+            continue
+
+        row_name = str(row[name_col]) if name_col and name_col in df.columns else ""
+        buy_amt = None
+        sell_amt = None
+        for c in cols:
+            c_str = str(c)
+            if "买入" in c_str and "额" in c_str:
+                buy_amt = row.get(c, 0)
+            if "卖出" in c_str and "额" in c_str:
+                sell_amt = row.get(c, 0)
+
+        matches.append({
+            "code": row_code,
+            "name": row_name,
+            "buy_amount": float(buy_amt) if buy_amt is not None and buy_amt == buy_amt else 0.0,
+            "sell_amount": float(sell_amt) if sell_amt is not None and sell_amt == sell_amt else 0.0,
+        })
+
+    return matches
+
+
 def fetch_pre_market_context(portfolio: dict[str, Any], watchlist: dict[str, Any]) -> dict[str, Any]:
     context: dict[str, Any] = {
         "timestamp": datetime.now().isoformat(timespec="seconds"),
