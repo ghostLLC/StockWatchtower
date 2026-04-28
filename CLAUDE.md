@@ -134,7 +134,6 @@ There is no test suite, no type checker, and no linter configured.
 
 ## Notable gaps
 
-- **`.env` is tracked in git** and the initial commit contains real API keys and SMTP credentials. These should be rotated and the file removed from tracking (`git rm --cached .env`).
-- **`openai` is listed in `requirements.txt` but never imported.** The analyzer is entirely rule-based; the LLM integration was planned but not implemented.
 - There are **no tests**, no CI, and no type-checking configuration.
 - The dashboard has **no authentication**. It binds to localhost, which is safe for single-user machines but should not be exposed to a network.
+- Global index prices from eastmoney may differ from actual index levels (the API returns derivative/ETF prices rather than raw index values). The change percentages are directionally correct and suitable for LLM analysis.

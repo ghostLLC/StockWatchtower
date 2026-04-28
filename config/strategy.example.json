@@ -1,16 +1,46 @@
 {
   "style": "long_term_3m",
-  "check_interval_minutes": 5,
+  "check_interval_minutes": 15,
   "send_only_on_action": true,
   "boards_allowed": ["main", "star"],
   "markets_allowed": ["A"],
   "max_same_signal_cooldown_minutes": 180,
+  "trading_session": {
+    "timezone": "Asia/Shanghai",
+    "weekdays": [1, 2, 3, 4, 5],
+    "pre_market_sessions": [
+      ["09:15", "09:25"]
+    ],
+    "sessions": [
+      ["09:30", "11:30"],
+      ["13:00", "15:00"]
+    ]
+  },
+  "llm_analysis": {
+    "enabled": true,
+    "pre_market_always": true,
+    "in_session_enabled": true,
+    "in_session_cooldown_minutes": 60,
+    "temperature": 0.3,
+    "max_tokens": 4000
+  },
   "risk_rules": {
     "market_drop_alert_pct": -2.0,
-    "position_breakdown_pct": -8.0
+    "position_breakdown_pct": -8.0,
+    "watchlist_stop_loss_pct": -3.5,
+    "trailing_take_profit_pct": 12.0,
+    "hard_take_profit_pct": 18.0
   },
   "opportunity_rules": {
     "max_new_buy_weight": 0.1,
-    "max_add_weight": 0.05
+    "max_add_weight": 0.05,
+    "watchlist_breakout_pct": 2.5
+  },
+  "portfolio_rules": {
+    "max_total_weight": 0.8,
+    "max_single_position_weight": 0.2,
+    "max_position_count": 6,
+    "max_tech_weight": 0.55,
+    "max_sector_weight": 0.35
   }
 }

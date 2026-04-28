@@ -9,6 +9,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from config_loader import BASE_DIR, CONFIG_DIR, load_json, save_json
+from scheduler import get_session_type
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -145,6 +146,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if parsed.path == "/":
             return self._send_file(WEB_DIR / "dashboard.html", "text/html; charset=utf-8")
         if parsed.path == "/api/state":
+            session_type = get_session_type()
             return self._send_json(
                 {
                     "ok": True,
@@ -152,6 +154,10 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     "tasks": _tasks_state(),
                     "reports": _recent_reports(),
                     "env_exists": (BASE_DIR / ".env").exists(),
+                    "session": {
+                        "type": session_type,
+                        "label": {"pre_market": "盘前分析", "in_session": "盘中巡检", "closed": "已闭市"}.get(session_type, session_type),
+                    },
                 }
             )
         if parsed.path.startswith("/reports/"):

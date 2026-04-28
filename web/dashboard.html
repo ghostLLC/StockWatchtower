@@ -167,9 +167,10 @@
         <p class="sub">以后你不用再钻进代码里开关和改配置。这里可以直接看计划任务状态、手动执行一次巡检、保存持仓/观察池/策略配置，以及查看最近生成的巡检报告。</p>
         <div class="badges">
           <span class="badge" id="envBadge">ENV：检查中</span>
+          <span class="badge" id="sessionBadge">时段：检查中</span>
           <span class="badge">市场：A股</span>
           <span class="badge">风格：3个月长期</span>
-          <span class="badge">巡检频率：开盘时每5分钟</span>
+          <span class="badge">巡检频率：盘前+盘中每15分钟</span>
         </div>
         <div class="actions">
           <button class="primary" id="refreshBtn">刷新状态</button>
@@ -330,6 +331,8 @@
       renderTasks(data.tasks);
       renderReports(data.reports);
       document.getElementById('envBadge').textContent = data.env_exists ? 'ENV：已配置' : 'ENV：未配置';
+      const sessionBadge = document.getElementById('sessionBadge');
+      sessionBadge.textContent = '时段：' + (data.session ? data.session.label : '未知');
       log('状态已刷新。');
     }
 

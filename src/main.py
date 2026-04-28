@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from analyzer import evaluate_market_snapshot, analyze_with_llm
+from analyzer import evaluate_market_snapshot, analyze_with_llm, SignalDecision
 from config_loader import BASE_DIR, CONFIG_DIR, bootstrap_environment, load_json
 from fetchers.market_data import fetch_market_snapshot
 from fetchers.news_fetcher import fetch_pre_market_context
@@ -34,7 +34,7 @@ def _fmt_weight(value: float) -> str:
     return f"{value:.0%}"
 
 
-def build_email_body(decision) -> str:
+def build_email_body(decision: SignalDecision) -> str:
     return (
         f"时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"动作：{decision.action}\n"

@@ -47,17 +47,16 @@ def _format_price_zone(latest: Any) -> str:
 
 
 def _is_tech_like(item: dict[str, Any]) -> bool:
-    board = str(item.get("board", "")).lower()
     code = str(item.get("code", ""))
     reason = str(item.get("reason", ""))
     sector = str(item.get("sector", ""))
-    keywords = ["芯片", "半导体", "算力", "ai", "办公软件", "服务器", "科技"]
+    keywords = ["芯片", "半导体", "算力", "ai", "软件", "服务器", "科技", "数据"]
     text = f"{reason} {sector}".lower()
-    return board == "star" or code.startswith("688") or any(keyword.lower() in text for keyword in keywords)
+    return code.startswith("688") or any(keyword.lower() in text for keyword in keywords)
 
 
 def _position_weight(item: dict[str, Any]) -> float:
-    for key in ["weight", "target_weight", "current_weight"]:
+    for key in ["current_weight", "weight"]:
         value = item.get(key)
         if value in (None, ""):
             continue
@@ -461,11 +460,13 @@ def _build_llm_prompt(
     positions = market_snapshot.get("positions", [])
     position_lines = []
     for pos in positions:
+        thesis = pos.get("thesis", "")
+        thesis_str = f", 持仓逻辑={thesis}" if thesis else ""
         position_lines.append(
             f"- {pos.get('code')} {pos.get('name')}: "
             f"最新价={pos.get('latest')}, 当日涨跌={pos.get('change_pct')}%, "
             f"距MA20={pos.get('price_vs_ma20_pct')}%, 近20日涨幅={pos.get('monthly_change_pct')}%, "
-            f"板块={pos.get('board')}"
+            f"行业={pos.get('sector', '')}, 板块={pos.get('board')}{thesis_str}"
         )
 
     watch_items = market_snapshot.get("watchlist", [])
@@ -475,7 +476,7 @@ def _build_llm_prompt(
             f"- {item.get('code')} {item.get('name')}: "
             f"最新价={item.get('latest')}, 当日涨跌={item.get('change_pct')}%, "
             f"距MA20={item.get('price_vs_ma20_pct')}%, 近20日涨幅={item.get('monthly_change_pct')}%, "
-            f"板块={item.get('board')}, 关注理由={item.get('reason', '')}"
+            f"行业={item.get('sector', '')}, 板块={item.get('board')}, 关注理由={item.get('reason', '')}"
         )
 
     indexes = market_snapshot.get("indexes", {})
@@ -561,6 +562,13 @@ def _build_llm_prompt(
     return prompt
 
 
+def _safe_num(value: Any, default: float = 0.0) -> float:
+    try:
+        return round(float(value), 4)
+    except (TypeError, ValueError):
+        return default
+
+
 def _parse_llm_decisions(content: str, portfolio: dict[str, Any], strategy: dict[str, Any]) -> list[SignalDecision]:
     json_text = content.strip()
 
@@ -595,11 +603,15 @@ def _parse_llm_decisions(content: str, portfolio: dict[str, Any], strategy: dict
 
         symbol = str(item.get("symbol", "UNKNOWN"))
         pos_data = pos_map.get(symbol, {})
-        current_weight = float(
+        current_weight = _safe_num(
             pos_data.get("current_weight") or pos_data.get("weight") or 0
         )
-        suggested_change = float(item.get("suggested_weight_change", 0.0))
-        target_weight = float(item.get("target_weight", current_weight + suggested_change))
+        suggested_change = _safe_num(item.get("suggested_weight_change", 0.0))
+        target_weight = _safe_num(
+            item.get("target_weight", current_weight + suggested_change)
+        )
+        if target_weight == 0.0 and suggested_change != 0.0:
+            target_weight = current_weight + suggested_change
         sector = str(item.get("sector") or pos_data.get("sector") or "未分类")
 
         decisions.append(_make_decision(
@@ -636,6 +648,7 @@ def analyze_with_llm(
     try:
         from openai import OpenAI
     except ImportError:
+        print("[LLM] openai not installed, skipping LLM analysis.")
         return []
 
     client = OpenAI(
@@ -654,10 +667,12 @@ def analyze_with_llm(
             ],
             temperature=float(llm_config.get("temperature", 0.3)),
             max_tokens=int(llm_config.get("max_tokens", 4000)),
+            timeout=90,
         )
         content = response.choices[0].message.content
         if not content:
             return []
         return _parse_llm_decisions(content, portfolio, strategy)
-    except Exception:
+    except Exception as exc:
+        print(f"[LLM] API call failed: {exc}")
         return []
