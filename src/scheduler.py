@@ -11,11 +11,6 @@ class SessionStatus:
     reason: str
 
 
-def _parse_time(value: str) -> time:
-    hour, minute = value.split(":", 1)
-    return time(hour=int(hour), minute=int(minute))
-
-
 def get_session_status(strategy: dict[str, Any], now: datetime | None = None) -> SessionStatus:
     now = now or datetime.now()
     session_type = get_session_type(now)

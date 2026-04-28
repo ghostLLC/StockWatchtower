@@ -237,6 +237,8 @@ def _append_position_management_decisions(
 
     for pos in positions:
         weight = _position_weight(pos)
+        if weight <= 0:
+            continue
         change_pct = float(pos.get("change_pct", 0.0))
         monthly_change_pct = float(pos.get("monthly_change_pct", 0.0))
         price_vs_ma20 = float(pos.get("price_vs_ma20_pct", 0.0))
@@ -457,6 +459,11 @@ def _build_llm_prompt(
     watchlist: dict[str, Any],
     strategy: dict[str, Any],
 ) -> str:
+    def _v(val: Any) -> str:
+        if val is None:
+            return "无"
+        return str(val)
+
     positions = market_snapshot.get("positions", [])
     position_lines = []
     for pos in positions:
@@ -464,9 +471,9 @@ def _build_llm_prompt(
         thesis_str = f", 持仓逻辑={thesis}" if thesis else ""
         position_lines.append(
             f"- {pos.get('code')} {pos.get('name')}: "
-            f"最新价={pos.get('latest')}, 当日涨跌={pos.get('change_pct')}%, "
-            f"距MA20={pos.get('price_vs_ma20_pct')}%, 近20日涨幅={pos.get('monthly_change_pct')}%, "
-            f"行业={pos.get('sector', '')}, 板块={pos.get('board')}{thesis_str}"
+            f"最新价={_v(pos.get('latest'))}, 当日涨跌={_v(pos.get('change_pct'))}%, "
+            f"距MA20={_v(pos.get('price_vs_ma20_pct'))}%, 近20日涨幅={_v(pos.get('monthly_change_pct'))}%, "
+            f"行业={_v(pos.get('sector', ''))}, 板块={_v(pos.get('board'))}{thesis_str}"
         )
 
     watch_items = market_snapshot.get("watchlist", [])
@@ -474,9 +481,9 @@ def _build_llm_prompt(
     for item in watch_items:
         watch_lines.append(
             f"- {item.get('code')} {item.get('name')}: "
-            f"最新价={item.get('latest')}, 当日涨跌={item.get('change_pct')}%, "
-            f"距MA20={item.get('price_vs_ma20_pct')}%, 近20日涨幅={item.get('monthly_change_pct')}%, "
-            f"行业={item.get('sector', '')}, 板块={item.get('board')}, 关注理由={item.get('reason', '')}"
+            f"最新价={_v(item.get('latest'))}, 当日涨跌={_v(item.get('change_pct'))}%, "
+            f"距MA20={_v(item.get('price_vs_ma20_pct'))}%, 近20日涨幅={_v(item.get('monthly_change_pct'))}%, "
+            f"行业={_v(item.get('sector', ''))}, 板块={_v(item.get('board'))}, 关注理由={_v(item.get('reason', ''))}"
         )
 
     indexes = market_snapshot.get("indexes", {})
@@ -593,6 +600,15 @@ def _parse_llm_decisions(content: str, portfolio: dict[str, Any], strategy: dict
     positions = portfolio.get("positions", [])
     pos_map: dict[str, dict[str, Any]] = {p.get("code", ""): p for p in positions}
 
+    def _find_pos_data(sym: str) -> dict[str, Any]:
+        if sym in pos_map:
+            return pos_map[sym]
+        code_only = sym.split(".", 1)[0] if "." in sym else sym
+        for k, v in pos_map.items():
+            if k.startswith(code_only + "."):
+                return v
+        return {}
+
     decisions: list[SignalDecision] = []
     for item in llm_decisions:
         if not isinstance(item, dict):
@@ -602,7 +618,7 @@ def _parse_llm_decisions(content: str, portfolio: dict[str, Any], strategy: dict
             continue
 
         symbol = str(item.get("symbol", "UNKNOWN"))
-        pos_data = pos_map.get(symbol, {})
+        pos_data = _find_pos_data(symbol)
         current_weight = _safe_num(
             pos_data.get("current_weight") or pos_data.get("weight") or 0
         )
