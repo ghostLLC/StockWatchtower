@@ -1,6 +1,6 @@
 {
   "style": "long_term_3m",
-  "check_interval_minutes": 5,
+  "check_interval_minutes": 15,
   "send_only_on_action": true,
   "boards_allowed": ["main", "star"],
   "markets_allowed": ["A"],
@@ -8,10 +8,21 @@
   "trading_session": {
     "timezone": "Asia/Shanghai",
     "weekdays": [1, 2, 3, 4, 5],
+    "pre_market_sessions": [
+      ["09:15", "09:25"]
+    ],
     "sessions": [
       ["09:30", "11:30"],
       ["13:00", "15:00"]
     ]
+  },
+  "llm_analysis": {
+    "enabled": true,
+    "pre_market_always": true,
+    "in_session_enabled": true,
+    "in_session_cooldown_minutes": 60,
+    "temperature": 0.3,
+    "max_tokens": 4000
   },
   "risk_rules": {
     "market_drop_alert_pct": -2.0,

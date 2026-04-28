@@ -18,19 +18,36 @@ def _parse_time(value: str) -> time:
 
 def get_session_status(strategy: dict[str, Any], now: datetime | None = None) -> SessionStatus:
     now = now or datetime.now()
-    trading_session = strategy.get("trading_session", {})
-    weekdays = trading_session.get("weekdays", [1, 2, 3, 4, 5])
-    sessions = trading_session.get("sessions", [["09:30", "11:30"], ["13:00", "15:00"]])
+    session_type = get_session_type(now)
+    if session_type == "in_session":
+        return SessionStatus(True, "当前处于A股开盘时段，开始巡检。")
+    if session_type == "pre_market":
+        return SessionStatus(True, "当前处于A股盘前时段，开始盘前分析。")
+    return SessionStatus(False, "当前不在A股交易时段，暂不启动巡检。")
 
-    weekday = now.isoweekday()
-    if weekday not in weekdays:
-        return SessionStatus(False, "非A股交易日，跳过巡检。")
+
+def get_session_type(now: datetime | None = None) -> str:
+    """Return 'pre_market', 'in_session', or 'closed'.
+
+    Pre-market: 09:15-09:25 on trading weekdays (Mon-Fri).
+    In-session: 09:30-11:30 and 13:00-15:00 on trading weekdays.
+    Closed: all other times.
+    """
+    now = now or datetime.now()
+    if now.isoweekday() not in (1, 2, 3, 4, 5):
+        return "closed"
 
     current = now.time()
-    for start_raw, end_raw in sessions:
-        start = _parse_time(start_raw)
-        end = _parse_time(end_raw)
-        if start <= current <= end:
-            return SessionStatus(True, "当前处于A股开盘时段，开始巡检。")
+    pre_start = time(9, 15)
+    pre_end = time(9, 25)
+    if pre_start <= current <= pre_end:
+        return "pre_market"
 
-    return SessionStatus(False, "当前不在A股开盘时段，暂不启动巡检。")
+    am_start = time(9, 30)
+    am_end = time(11, 30)
+    pm_start = time(13, 0)
+    pm_end = time(15, 0)
+    if (am_start <= current <= am_end) or (pm_start <= current <= pm_end):
+        return "in_session"
+
+    return "closed"

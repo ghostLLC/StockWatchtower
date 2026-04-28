@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -432,3 +435,229 @@ def evaluate_market_snapshot(snapshot: dict[str, Any], portfolio: dict[str, Any]
     decisions = _deduplicate_decisions(decisions)
     priority = {"high": 0, "medium": 1, "low": 2}
     return sorted(decisions, key=lambda item: (priority.get(item.urgency, 9), item.action, item.symbol))
+
+
+SYSTEM_PROMPT = """\
+你是一位经验丰富的A股交易策略分析师，专注于3个月左右的中线持仓管理。
+
+你的任务是基于提供的市场数据、新闻资讯和策略参数，分析当前持仓和观察池，给出具体的交易建议。
+
+分析原则：
+1. 技术面优先：关注价格与20日均线的关系、近期涨跌幅趋势
+2. 消息面验证：用新闻和全球市场表现来验证或推翻技术信号
+3. 风控纪律：严格遵守仓位上限、板块集中度、止损止盈规则
+4. 宁可错过，不要做错：不确定时选择观望，不产生交易信号
+
+请以严格的JSON格式返回分析结论，不要包含任何其他文字。"""
+
+
+def _build_llm_prompt(
+    market_snapshot: dict[str, Any],
+    news_context: dict[str, Any],
+    portfolio: dict[str, Any],
+    watchlist: dict[str, Any],
+    strategy: dict[str, Any],
+) -> str:
+    positions = market_snapshot.get("positions", [])
+    position_lines = []
+    for pos in positions:
+        position_lines.append(
+            f"- {pos.get('code')} {pos.get('name')}: "
+            f"最新价={pos.get('latest')}, 当日涨跌={pos.get('change_pct')}%, "
+            f"距MA20={pos.get('price_vs_ma20_pct')}%, 近20日涨幅={pos.get('monthly_change_pct')}%, "
+            f"板块={pos.get('board')}"
+        )
+
+    watch_items = market_snapshot.get("watchlist", [])
+    watch_lines = []
+    for item in watch_items:
+        watch_lines.append(
+            f"- {item.get('code')} {item.get('name')}: "
+            f"最新价={item.get('latest')}, 当日涨跌={item.get('change_pct')}%, "
+            f"距MA20={item.get('price_vs_ma20_pct')}%, 近20日涨幅={item.get('monthly_change_pct')}%, "
+            f"板块={item.get('board')}, 关注理由={item.get('reason', '')}"
+        )
+
+    indexes = market_snapshot.get("indexes", {})
+    index_lines = [f"- {name}: 涨跌={data.get('change_pct')}%" for name, data in indexes.items()]
+
+    global_markets = news_context.get("global_markets", {})
+    global_lines = []
+    for name, data in global_markets.items():
+        if isinstance(data, dict):
+            global_lines.append(f"- {name}: {data.get('price')}（{data.get('change_pct')}%）")
+
+    market_news = news_context.get("market_news", [])
+    news_lines = [f"- {item.get('title', '')}" for item in market_news[:15]]
+
+    stock_news = news_context.get("stock_news", {})
+    stock_news_lines = []
+    for symbol, items in stock_news.items():
+        if items:
+            titles = "；".join(item.get("title", "") for item in items[:3])
+            stock_news_lines.append(f"- {symbol}: {titles}")
+
+    risk_rules = strategy.get("risk_rules", {})
+    portfolio_rules = strategy.get("portfolio_rules", {})
+    opportunity_rules = strategy.get("opportunity_rules", {})
+
+    prompt = f"""## 当前市场状态
+{market_snapshot.get('market_state', 'unknown')}
+
+### 指数表现
+{chr(10).join(index_lines) if index_lines else '无数据'}
+
+### 持仓标的技术数据
+{chr(10).join(position_lines) if position_lines else '空仓'}
+
+### 观察池标的技术数据
+{chr(10).join(watch_lines) if watch_lines else '无观察标的'}
+
+## 隔夜全球市场
+{chr(10).join(global_lines) if global_lines else '无数据'}
+
+## 最新市场新闻
+{chr(10).join(news_lines) if news_lines else '无数据'}
+
+## 个股相关新闻
+{chr(10).join(stock_news_lines) if stock_news_lines else '无数据'}
+
+## 策略参数与风控规则
+- 持仓风格: {strategy.get('style', '')}
+- 止损线: 持仓跌破{risk_rules.get('position_breakdown_pct', -8)}%
+- 止盈线: 近20日涨幅{risk_rules.get('trailing_take_profit_pct', 12)}%（分批），{risk_rules.get('hard_take_profit_pct', 18)}%（硬止盈）
+- 建仓触发: 当日涨幅≥{opportunity_rules.get('watchlist_breakout_pct', 2.5)}%且站上MA20
+- 总仓位上限: {portfolio_rules.get('max_total_weight', 0.8):.0%}
+- 单票上限: {portfolio_rules.get('max_single_position_weight', 0.2):.0%}
+- 最多持仓数: {portfolio_rules.get('max_position_count', 6)}
+- 科技方向上限: {portfolio_rules.get('max_tech_weight', 0.55):.0%}
+- 单板块上限: {portfolio_rules.get('max_sector_weight', 0.35):.0%}
+
+## 当前持仓概况
+- 组合名称: {portfolio.get('portfolio_name', '')}
+- 现金: {portfolio.get('cash', 0)}
+- 持仓数: {len(positions)}
+
+请以JSON格式返回你的分析结论，格式如下：
+{{
+  "market_assessment": "整体市场环境评估（1-2句话）",
+  "decisions": [
+    {{
+      "action": "buy|sell|add|reduce|trim|take_profit|rebalance",
+      "symbol": "股票代码如688981.SH",
+      "summary": "一句话执行摘要",
+      "reason": "详细分析理由，包含技术面和消息面依据",
+      "urgency": "high|medium|low",
+      "suggested_weight_change": 0.05,
+      "price_zone": "建议价格区间",
+      "execution_plan": "分批执行步骤",
+      "invalidation_rule": "放弃执行的条件",
+      "risk_note": "需特别注意的风险"
+    }}
+  ]
+}}
+
+注意：如果没有需要调整的，decisions数组为空。每个标的最多一个决策。组合层面调整用symbol="PORTFOLIO"表示。"""
+    return prompt
+
+
+def _parse_llm_decisions(content: str, portfolio: dict[str, Any], strategy: dict[str, Any]) -> list[SignalDecision]:
+    json_text = content.strip()
+
+    code_block = re.search(r'```(?:json)?\s*\n?(.*?)\n?```', content, re.DOTALL)
+    if code_block:
+        json_text = code_block.group(1).strip()
+
+    if not json_text.startswith('{'):
+        match = re.search(r'\{.*\}', content, re.DOTALL)
+        if match:
+            json_text = match.group(0)
+
+    try:
+        data = json.loads(json_text)
+    except json.JSONDecodeError:
+        return []
+
+    llm_decisions = data.get("decisions", [])
+    if not isinstance(llm_decisions, list):
+        return []
+
+    positions = portfolio.get("positions", [])
+    pos_map: dict[str, dict[str, Any]] = {p.get("code", ""): p for p in positions}
+
+    decisions: list[SignalDecision] = []
+    for item in llm_decisions:
+        if not isinstance(item, dict):
+            continue
+        action = item.get("action", "")
+        if action in ("hold", ""):
+            continue
+
+        symbol = str(item.get("symbol", "UNKNOWN"))
+        pos_data = pos_map.get(symbol, {})
+        current_weight = float(
+            pos_data.get("current_weight") or pos_data.get("weight") or 0
+        )
+        suggested_change = float(item.get("suggested_weight_change", 0.0))
+        target_weight = float(item.get("target_weight", current_weight + suggested_change))
+        sector = str(item.get("sector") or pos_data.get("sector") or "未分类")
+
+        decisions.append(_make_decision(
+            action=action,
+            symbol=symbol,
+            summary=str(item.get("summary", f"{action} {symbol}")),
+            reason=str(item.get("reason", "")),
+            urgency=str(item.get("urgency", "medium")),
+            suggested_weight_change=suggested_change,
+            price_zone=str(item.get("price_zone", "待确认")),
+            current_weight=current_weight,
+            target_weight=target_weight,
+            sector=sector,
+            execution_plan=str(item.get("execution_plan", "分批执行")),
+            invalidation_rule=str(item.get("invalidation_rule", "若后续行情与趋势条件失效，则放弃执行。")),
+            risk_note=str(item.get("risk_note", "注意控制单票和组合总仓位。")),
+        ))
+
+    return decisions
+
+
+def analyze_with_llm(
+    market_snapshot: dict[str, Any],
+    news_context: dict[str, Any],
+    portfolio: dict[str, Any],
+    watchlist: dict[str, Any],
+    strategy: dict[str, Any],
+) -> list[SignalDecision]:
+    """Run LLM analysis on pre-market or intraday context. Returns trading decisions."""
+    llm_config = strategy.get("llm_analysis", {})
+    if not llm_config.get("enabled", True):
+        return []
+
+    try:
+        from openai import OpenAI
+    except ImportError:
+        return []
+
+    client = OpenAI(
+        base_url=os.getenv("MODEL_BASE_URL"),
+        api_key=os.getenv("MODEL_API_KEY"),
+    )
+    model = os.getenv("MODEL_NAME", "gpt-4")
+    prompt = _build_llm_prompt(market_snapshot, news_context, portfolio, watchlist, strategy)
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=float(llm_config.get("temperature", 0.3)),
+            max_tokens=int(llm_config.get("max_tokens", 4000)),
+        )
+        content = response.choices[0].message.content
+        if not content:
+            return []
+        return _parse_llm_decisions(content, portfolio, strategy)
+    except Exception:
+        return []

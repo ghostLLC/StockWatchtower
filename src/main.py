@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from analyzer import evaluate_market_snapshot
+from analyzer import evaluate_market_snapshot, analyze_with_llm
 from config_loader import BASE_DIR, CONFIG_DIR, bootstrap_environment, load_json
 from fetchers.market_data import fetch_market_snapshot
-from scheduler import get_session_status
+from fetchers.news_fetcher import fetch_pre_market_context
+from scheduler import get_session_type
 
 try:
     from notifier.emailer import send_signal_email
@@ -59,31 +60,42 @@ def save_report(content: str) -> Path:
     return path
 
 
-def main() -> None:
-    bootstrap_environment()
-    ensure_runtime_dirs()
-    portfolio, watchlist, strategy = load_runtime_configs()
+def _llm_cooldown_path() -> Path:
+    return BASE_DIR / "data" / "signals" / "llm_in_session_last.txt"
 
-    session_status = get_session_status(strategy)
-    if not session_status.is_open_session:
-        report = f"# 本次巡检\n\n结论：{session_status.reason}\n"
-        save_report(report)
-        print(session_status.reason)
-        return
 
+def _should_run_in_session_llm(strategy: dict) -> bool:
+    cooldown_minutes = int(strategy.get("llm_analysis", {}).get("in_session_cooldown_minutes", 60))
+    path = _llm_cooldown_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        path.write_text(datetime.now().isoformat(), encoding="utf-8")
+        return True
     try:
-        snapshot = fetch_market_snapshot(portfolio, watchlist)
-    except Exception as exc:
-        report = (
-            "# 本次巡检\n\n"
-            "结论：行情采集失败，已跳过本次巡检。\n\n"
-            f"原因：{exc}\n"
-        )
-        save_report(report)
-        print(f"Market data fetch failed: {exc}")
-        return
+        last = datetime.fromisoformat(path.read_text(encoding="utf-8").strip())
+        elapsed = (datetime.now() - last).total_seconds()
+        if elapsed > cooldown_minutes * 60:
+            path.write_text(datetime.now().isoformat(), encoding="utf-8")
+            return True
+    except Exception:
+        path.write_text(datetime.now().isoformat(), encoding="utf-8")
+        return True
+    return False
 
-    decisions = evaluate_market_snapshot(snapshot, portfolio, watchlist, strategy)
+
+def _merge_decisions(primary: list, secondary: list) -> list:
+    existing_keys = {(d.action, d.symbol) for d in primary}
+    merged = list(primary)
+    for d in secondary:
+        if (d.action, d.symbol) not in existing_keys:
+            merged.append(d)
+            existing_keys.add((d.action, d.symbol))
+    priority = {"high": 0, "medium": 1, "low": 2}
+    return sorted(merged, key=lambda d: (priority.get(d.urgency, 9), d.action, d.symbol))
+
+
+def _process_decisions(decisions: list, snapshot: dict, strategy: dict) -> None:
+    cooldown_minutes = int(strategy.get("max_same_signal_cooldown_minutes", 180))
 
     if not decisions:
         report = (
@@ -95,11 +107,11 @@ def main() -> None:
         print("No trade signal.")
         return
 
-    cooldown_minutes = int(strategy.get("max_same_signal_cooldown_minutes", 180))
     report_lines = [
         "# 本次巡检",
         "",
         f"- 数据源：{snapshot.get('data_sources', {})}",
+        f"- 市场状态：{snapshot.get('market_state', 'unknown')}",
         "",
     ]
     for decision in decisions:
@@ -140,6 +152,69 @@ def main() -> None:
 
     save_report("\n".join(report_lines))
     print("Trade signal generated.")
+
+
+def main() -> None:
+    bootstrap_environment()
+    ensure_runtime_dirs()
+    portfolio, watchlist, strategy = load_runtime_configs()
+
+    session_type = get_session_type()
+    if session_type == "closed":
+        report = "# 本次巡检\n\n结论：当前不在A股交易时段，跳过巡检。\n"
+        save_report(report)
+        print("Not in trading session.")
+        return
+
+    try:
+        snapshot = fetch_market_snapshot(portfolio, watchlist)
+    except Exception as exc:
+        report = (
+            "# 本次巡检\n\n"
+            "结论：行情采集失败，已跳过本次巡检。\n\n"
+            f"原因：{exc}\n"
+        )
+        save_report(report)
+        print(f"Market data fetch failed: {exc}")
+        return
+
+    # --- Pre-market: LLM-driven analysis with news context ---
+    if session_type == "pre_market":
+        news_context = fetch_pre_market_context(portfolio, watchlist)
+        llm_decisions = analyze_with_llm(snapshot, news_context, portfolio, watchlist, strategy)
+
+        if not llm_decisions:
+            report_lines = [
+                "# 盘前分析",
+                "",
+                f"- 时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"- 全球市场：{news_context.get('global_markets', {})}",
+                f"- 新闻条数：{len(news_context.get('market_news', []))}",
+                f"- 采集错误：{news_context.get('errors', [])}",
+                "",
+                "结论：LLM分析未产生交易信号，维持现有仓位不变。",
+            ]
+            save_report("\n".join(report_lines))
+            print("Pre-market: no signals from LLM.")
+            return
+
+        decisions = llm_decisions
+        _process_decisions(decisions, snapshot, strategy)
+        return
+
+    # --- In-session: rule engine + optional LLM enhancement ---
+    decisions = evaluate_market_snapshot(snapshot, portfolio, watchlist, strategy)
+
+    llm_config = strategy.get("llm_analysis", {})
+    if llm_config.get("in_session_enabled") and _should_run_in_session_llm(strategy):
+        try:
+            news_context = fetch_pre_market_context(portfolio, watchlist)
+            llm_decisions = analyze_with_llm(snapshot, news_context, portfolio, watchlist, strategy)
+            decisions = _merge_decisions(decisions, llm_decisions)
+        except Exception:
+            pass
+
+    _process_decisions(decisions, snapshot, strategy)
 
 
 if __name__ == "__main__":
