@@ -12,8 +12,10 @@ venv/
 # Runtime outputs
 logs/
 reports/
-data/cache/
-data/signals/
+data/
+
+# Claude Code
+.claude/
 
 # OS / editor
 .DS_Store

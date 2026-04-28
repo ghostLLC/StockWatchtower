@@ -1,82 +1,99 @@
 # Stock Watchtower
 
-A股 5 分钟交易监控系统首版骨架。
+A股中线交易监控系统。盘前用 LLM 分析隔夜讯息 + 全球市场，盘中用规则引擎盯价格走势，有调仓信号时发邮件通知。
 
-## 当前已完成
+## 运行模式
 
-- 项目目录已初始化
-- 已生成环境变量模板 `.env.example`
-- 已生成持仓、观察池、策略配置模板
-- 已生成首版主程序入口 `src/main.py`
-- 已生成邮件发送模块和运行脚本 `run.bat`
+| 时段 | 频率 | 分析方式 |
+|---|---|---|
+| 盘前 09:15–09:25 | 每交易日一次 | 采集隔夜全球市场 + 财经新闻 + 个股公告 → LLM 综合分析 → 邮件 |
+| 盘中 09:30–15:00 | 每 15 分钟 | 实时行情 → 规则引擎 + LLM 增强（每小时一次）→ 邮件 |
+| 其他时间 | — | 直接退出 |
 
-## 你现在需要做的事
-
-1. 复制 `.env.example` 为 `.env`
-2. 填入模型接口和QQ邮箱配置
-3. 将 `config/*.example.json` 复制为正式文件：
-   - `config/portfolio.json`
-   - `config/watchlist.json`
-   - `config/strategy.json`
-4. 按你的真实持仓和观察池修改内容
-5. 安装依赖后运行：
+## 快速开始
 
 ```bash
+# 1. 安装依赖
 pip install -r requirements.txt
-python src/main.py
+
+# 2. 配置
+cp .env.example .env          # 填入 LLM API 和 QQ 邮箱配置
+# 编辑 config/portfolio.json   # 填入真实持仓
+# 编辑 config/watchlist.json   # 填入观察池标的
+
+# 3. 运行
+python src/main.py              # 单次巡检（自动判断盘前/盘中模式）
+python src/dashboard_server.py  # Web 控制面板 → http://127.0.0.1:8765
 ```
 
-如果直接运行时报缺少模块（例如 `python-dotenv`），先执行依赖安装命令再重试。
+## 配置说明
 
-## 当前状态说明
+三个 JSON 配置文件在 `config/` 目录下：
 
-这一版已经接入真实A股行情，并补上了：
+- **`portfolio.json`** — 持仓列表（code、name、board、sector、current_weight、target_weight、entry_date、thesis）
+- **`watchlist.json`** — 观察池（code、name、board、sector、reason）
+- **`strategy.json`** — 策略参数：
+  - `check_interval_minutes` — 巡检间隔
+  - `trading_session` — 盘前和盘中时段配置
+  - `llm_analysis` — LLM 分析开关和冷却时间
+  - `risk_rules` — 止损止盈阈值
+  - `opportunity_rules` — 建仓/加仓条件
+  - `portfolio_rules` — 仓位和集中度上限
 
-- 使用 akshare 获取指数与个股实时/日线数据
-- 3个月持有周期的首版趋势判断逻辑
-- 仅在A股开盘时段巡检（09:30-11:30，13:00-15:00）
-- 空仓状态下优先从观察池中筛选建仓候选
-- 非开盘时间只记录“暂不启动巡检”，不会误发邮件
-- 行情采集失败时会生成失败报告并跳过本次巡检，不会让程序直接崩掉
-- 本机依赖已安装完成，可直接运行主程序或计划任务
-- 已加入行情重试、东方财富备用源和日线缓存兜底
-- 即使首次运行没有历史缓存，日线获取失败时也会降级为仅用实时数据继续巡检
-- 已加入邮件信号去重：同一动作 + 同一标的默认 180 分钟内不重复发信
-- 已加入更细的仓位管理、止损止盈和组合风险控制
-  - 总仓位默认上限 80%
-  - 单票默认上限 20%
-  - 科技方向默认集中度上限 55%
-  - 单一板块默认集中度上限 35%
-  - 近20日较大浮盈时会触发分批止盈判断
-  - 风险环境恶化时会优先给出减仓或回收仓位建议
-- 已升级邮件/报告内容：
-  - 当前仓位
-  - 目标仓位
-  - 执行建议
-  - 失效条件
-  - 风险提示
-- 已支持更真实的持仓结构：
-  - current_weight
-  - target_weight
-  - max_weight
-  - entry_date
-  - sector
-  - thesis
+## 规则引擎
 
-## 计划任务说明
+盘中规则引擎按四阶段运行：
 
-当前建议通过两个 Windows 计划任务驱动：
+1. **组合风险检查** — 总仓位、科技集中度、板块集中度、单票上限超标时发出 rebalance/trim 信号
+2. **持仓管理** — 止损（跌破 -8% 或 -3.5% 且低于 MA20）、止盈（月涨幅 ≥18% 硬止盈 / ≥12% 且回撤时分批止盈）、加仓（risk_on + 站上 MA20 + 趋势延续）
+3. **建仓筛选** — 观察池中当日涨幅 ≥2.5% 且站上 MA20 且月涨幅为正的标的，按动量排序
+4. **去重排序** — 同 (action, symbol) 仅保留一条，按紧急度排序
 
-- `stock-watchtower-am`：工作日 09:30 开始，每 5 分钟执行一次，持续 2 小时 1 分钟
-- `stock-watchtower-pm`：工作日 13:00 开始，每 5 分钟执行一次，持续 2 小时 1 分钟
+## 邮件信号去重
 
-两者都会调用 `D:\stock-watchtower\run.bat`，而程序内部也会再次判断是否处于开盘时段，因此即使计划任务触发，也不会在非交易时段误发信号。
+同一动作 + 同一标的在 180 分钟内不重复发信（可通过 `strategy.json` 中 `max_same_signal_cooldown_minutes` 调整）。
 
-## 当前默认配置
+## 计划任务
 
-- 当前持仓：空仓
-- 当前策略：A股、3个月左右长期风格、每5分钟检查一次、只有明确买卖动作才发邮件
-- 同类邮件信号冷却：180 分钟
-- 当前观察池已补充行业/板块字段，可用于板块集中度判断
+推荐通过 Windows 任务计划程序配置三个触发器：
 
-在这组默认配置下，系统运行时通常只会在满足趋势与风险条件时输出交易建议，并且尽量避免重复提醒。
+- `stock-watchtower-pre` — 工作日 09:15，执行 `run.bat`
+- `stock-watchtower-am` — 工作日 09:30–11:31，每 15 分钟，执行 `run.bat`
+- `stock-watchtower-pm` — 工作日 13:00–15:01，每 15 分钟，执行 `run.bat`
+
+程序内部会再次判断时段，即使计划任务误触发也不会在非交易时段发信号。
+
+## 技术架构
+
+```
+main.py
+  ├─ scheduler.py            → 判断盘前/盘中/闭市
+  ├─ fetchers/
+  │   ├─ market_data.py      → 行情采集（akshare → 东方财富降级 → 日线缓存）
+  │   └─ news_fetcher.py     → 新闻采集（akshare 财经快讯 + 东方财富全球指数）
+  ├─ analyzer.py             → 规则引擎 + LLM 分析
+  ├─ notifier/
+  │   ├─ signal_registry.py  → 信号去重（JSON 文件持久化）
+  │   └─ emailer.py          → QQ 邮箱 SMTP 发送
+  └─ dashboard_server.py     → Web 控制面板（127.0.0.1:8765）
+```
+
+## 依赖
+
+- `akshare` — A股行情和新闻数据
+- `openai` — LLM 分析（OpenAI 兼容 API）
+- `python-dotenv` — 环境变量加载
+- `requests` — HTTP 请求
+
+## 环境变量（.env）
+
+| 变量 | 说明 |
+|---|---|
+| `MODEL_BASE_URL` | LLM API 地址 |
+| `MODEL_API_KEY` | LLM API 密钥 |
+| `MODEL_NAME` | 模型名称 |
+| `SMTP_HOST` | SMTP 服务器 |
+| `SMTP_PORT` | SMTP 端口 |
+| `SMTP_USER` | 发件邮箱 |
+| `SMTP_PASS` | 邮箱授权码 |
+| `MAIL_TO` | 收件邮箱 |
