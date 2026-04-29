@@ -15,18 +15,28 @@ A股中线交易监控系统。盘前用 LLM 分析隔夜讯息 + 全球市场�
 ## 快速开始
 
 ```bash
-# 1. 安装依赖
-pip install -r requirements.txt
+# 1. 克隆仓库
+git clone https://github.com/ghostLLC/stock-watchtower.git
+cd stock-watchtower
 
-# 2. 配置
-cp .env.example .env          # 填入 LLM API 和 QQ 邮箱配置
-# 编辑 config/portfolio.json   # 填入真实持仓
-# 编辑 config/watchlist.json   # 填入观察池标的
+# 2. 安装依赖（开发依赖也装上）
+pip install -r requirements.txt mypy pytest
 
-# 3. 运行
+# 3. 验证开发环境
+mypy src/                        # 类型检查，应该零错误
+python -m pytest tests/ -v       # 61 个测试全部通过
+
+# 4. 配置
+cp .env.example .env            # 填入 LLM API 和 QQ 邮箱配置
+# 编辑 config/portfolio.json     # 填入真实持仓
+# 编辑 config/watchlist.json     # 填入观察池标的
+
+# 5. 运行
 python src/main.py              # 单次巡检（自动判断盘前/盘中模式）
 python src/dashboard_server.py  # Web 控制面板 → http://127.0.0.1:8765
 ```
+
+> **换机器开发**只需要前三步（clone + pip install + 验证），配置文件和 `.env` 不提交在仓库里，从 example 文件手写或从原机器拷贝即可。
 
 ## 配置说明
 
