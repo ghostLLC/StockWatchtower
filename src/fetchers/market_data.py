@@ -250,7 +250,7 @@ def _build_symbol_snapshot(item: dict[str, Any], realtime_map: dict[str, dict[st
             amounts = daily["成交额"].astype(float).tail(20)
             if len(amounts) >= 5:
                 avg_turnover = round(amounts.mean(), 2)
-                today_amount = float(realtime.get("turnover")) if realtime.get("turnover") is not None else None
+                today_amount = float(realtime.get("turnover")) if realtime.get("turnover") is not None else None  # type: ignore[arg-type]
                 if avg_turnover and avg_turnover > 0 and today_amount and today_amount > 0:
                     volume_ratio = round(today_amount / avg_turnover, 2)
 

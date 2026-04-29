@@ -6,6 +6,7 @@ import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
 from config_loader import BASE_DIR, CONFIG_DIR, load_json, save_json
@@ -21,7 +22,7 @@ TASK_NAMES = {
 }
 
 
-def _load_configs() -> dict:
+def _load_configs() -> dict[str, Any]:
     return {
         "portfolio": load_json(CONFIG_DIR / "portfolio.json"),
         "watchlist": load_json(CONFIG_DIR / "watchlist.json"),
@@ -29,7 +30,7 @@ def _load_configs() -> dict:
     }
 
 
-def _recent_reports(limit: int = 12) -> list[dict]:
+def _recent_reports(limit: int = 12) -> list[dict[str, Any]]:
     files = sorted(REPORTS_DIR.glob("run_*.md"), reverse=True)[:limit]
     return [
         {
@@ -41,7 +42,7 @@ def _recent_reports(limit: int = 12) -> list[dict]:
     ]
 
 
-def _query_task(task_name: str) -> dict:
+def _query_task(task_name: str) -> dict[str, Any]:
     command = ["schtasks", "/Query", "/TN", task_name, "/V", "/FO", "LIST"]
     result = subprocess.run(command, capture_output=True, text=True, encoding="utf-8", errors="ignore")
     if result.returncode != 0:
@@ -75,11 +76,11 @@ def _query_task(task_name: str) -> dict:
     }
 
 
-def _tasks_state() -> dict:
+def _tasks_state() -> dict[str, Any]:
     return {key: _query_task(name) for key, name in TASK_NAMES.items()}
 
 
-def _run_task_action(task_key: str, action: str) -> dict:
+def _run_task_action(task_key: str, action: str) -> dict[str, Any]:
     task_name = TASK_NAMES[task_key]
     if action == "enable":
         command = ["schtasks", "/Change", "/TN", task_name, "/ENABLE"]
@@ -99,7 +100,7 @@ def _run_task_action(task_key: str, action: str) -> dict:
     }
 
 
-def _run_once() -> dict:
+def _run_once() -> dict[str, Any]:
     result = subprocess.run(
         [sys.executable, "src/main.py"],
         cwd=BASE_DIR,
@@ -120,7 +121,7 @@ def _run_once() -> dict:
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "StockWatchtowerDashboard/1.0"
 
-    def _send_json(self, payload: dict, status: int = 200) -> None:
+    def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -136,7 +137,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _read_json_body(self) -> dict:
+    def _read_json_body(self) -> Any:
         length = int(self.headers.get("Content-Length", "0"))
         raw = self.rfile.read(length) if length else b"{}"
         return json.loads(raw.decode("utf-8"))

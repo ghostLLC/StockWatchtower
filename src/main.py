@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import json as _json
 from datetime import time as _time
@@ -17,9 +18,9 @@ try:
     from notifier.emailer import send_signal_email
     from notifier.signal_registry import record_sent_signal, should_send_signal
 except Exception:
-    send_signal_email = None
-    record_sent_signal = None
-    should_send_signal = None
+    send_signal_email = None  # type: ignore[assignment]
+    record_sent_signal = None  # type: ignore[assignment]
+    should_send_signal = None  # type: ignore[assignment]
 
 
 def ensure_runtime_dirs() -> None:
@@ -27,7 +28,7 @@ def ensure_runtime_dirs() -> None:
         (BASE_DIR / folder).mkdir(parents=True, exist_ok=True)
 
 
-def load_runtime_configs() -> tuple[dict, dict, dict]:
+def load_runtime_configs() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
     portfolio = load_json(CONFIG_DIR / "portfolio.json")
     watchlist = load_json(CONFIG_DIR / "watchlist.json")
     strategy = load_json(CONFIG_DIR / "strategy.json")
@@ -68,7 +69,7 @@ def _llm_cooldown_path() -> Path:
     return BASE_DIR / "data" / "signals" / "llm_in_session_last.txt"
 
 
-def _should_run_in_session_llm(strategy: dict) -> bool:
+def _should_run_in_session_llm(strategy: dict[str, Any]) -> bool:
     cooldown_minutes = int(strategy.get("llm_analysis", {}).get("in_session_cooldown_minutes", 60))
     path = _llm_cooldown_path()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,7 +162,7 @@ def _send_daily_summary() -> None:
         print(f"Daily summary failed: {exc}")
 
 
-def _merge_decisions(primary: list, secondary: list) -> list:
+def _merge_decisions(primary: list[SignalDecision], secondary: list[SignalDecision]) -> list[SignalDecision]:
     existing_keys = {(d.action, d.symbol) for d in primary}
     merged = list(primary)
     for d in secondary:
@@ -172,7 +173,7 @@ def _merge_decisions(primary: list, secondary: list) -> list:
     return sorted(merged, key=lambda d: (priority.get(d.urgency, 9), d.action, d.symbol))
 
 
-def _process_decisions(decisions: list, snapshot: dict, strategy: dict) -> None:
+def _process_decisions(decisions: list[SignalDecision], snapshot: dict[str, Any], strategy: dict[str, Any]) -> None:
     cooldown_minutes = int(strategy.get("max_same_signal_cooldown_minutes", 180))
 
     if not decisions:
@@ -196,7 +197,7 @@ def _process_decisions(decisions: list, snapshot: dict, strategy: dict) -> None:
         email_status = "未发送"
         is_high = decision.urgency == "high"
 
-        if send_signal_email and should_send_signal and record_sent_signal:
+        if send_signal_email is not None and should_send_signal is not None and record_sent_signal is not None:
             allowed, reason = should_send_signal(decision, cooldown_minutes)
             if allowed and is_high:
                 try:
@@ -210,7 +211,7 @@ def _process_decisions(decisions: list, snapshot: dict, strategy: dict) -> None:
                 email_status = f"已加入每日汇总（{reason}）"
             else:
                 email_status = f"已去重，未发送（{reason}）"
-        elif send_signal_email:
+        elif send_signal_email is not None:
             if is_high:
                 email_status = "邮件模块可用，但去重模块未加载"
             else:

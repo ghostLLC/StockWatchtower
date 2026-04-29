@@ -58,7 +58,7 @@ def _is_tech_like(item: dict[str, Any]) -> bool:
 def _position_weight(item: dict[str, Any]) -> float:
     for key in ["current_weight", "weight"]:
         value = item.get(key)
-        if value in (None, ""):
+        if value is None or value == "":
             continue
         try:
             return round(float(value), 4)

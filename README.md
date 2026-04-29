@@ -2,6 +2,8 @@
 
 A股中线交易监控系统。盘前用 LLM 分析隔夜讯息 + 全球市场，盘中用规则引擎盯价格走势，有调仓信号时发邮件通知。
 
+[![CI](https://github.com/ghostLLC/stock-watchtower/actions/workflows/ci.yml/badge.svg)](https://github.com/ghostLLC/stock-watchtower/actions/workflows/ci.yml)
+
 ## 运行模式
 
 | 时段 | 频率 | 分析方式 |
@@ -70,12 +72,30 @@ main.py
   ├─ scheduler.py            → 判断盘前/盘中/闭市
   ├─ fetchers/
   │   ├─ market_data.py      → 行情采集（akshare → 东方财富降级 → 日线缓存）
-  │   └─ news_fetcher.py     → 新闻采集（akshare 财经快讯 + 东方财富全球指数）
+  │   ├─ news_fetcher.py     → 新闻采集 + 全球指数 + 龙虎榜匹配
+  │   └─ capital_flow.py     → 北向资金流向
   ├─ analyzer.py             → 规则引擎 + LLM 分析
   ├─ notifier/
-  │   ├─ signal_registry.py  → 信号去重（JSON 文件持久化）
-  │   └─ emailer.py          → QQ 邮箱 SMTP 发送
-  └─ dashboard_server.py     → Web 控制面板（127.0.0.1:8765）
+  │   ├─ signal_registry.py  → 信号去重 + 冷却期管理
+  │   └─ emailer.py          → QQ 邮箱 SMTP（高紧急即时发送，中低紧急收盘汇总）
+  ├─ dashboard_server.py     → Web 控制面板（127.0.0.1:8765）
+  └─ tests/
+      ├─ test_scheduler.py       → 时段判断测试
+      ├─ test_analyzer.py        → 规则引擎测试
+      ├─ test_config_loader.py   → 配置读写测试
+      └─ test_signal_registry.py → 去重逻辑测试
+```
+
+## 开发
+
+```bash
+# 运行测试
+python -m pytest tests/ -v
+
+# 类型检查
+mypy src/
+
+# CI 在 push/PR 时自动执行以上两项
 ```
 
 ## 依赖
@@ -84,6 +104,9 @@ main.py
 - `openai` — LLM 分析（OpenAI 兼容 API）
 - `python-dotenv` — 环境变量加载
 - `requests` — HTTP 请求
+- `pydantic` — 数据校验
+
+开发依赖：`pytest`、`mypy`
 
 ## 环境变量（.env）
 

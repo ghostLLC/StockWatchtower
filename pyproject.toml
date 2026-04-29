@@ -1,0 +1,16 @@
+[tool.mypy]
+strict = true
+python_version = "3.11"
+explicit_package_bases = true
+mypy_path = "src"
+
+# Exclude tests/ dir from strict checking
+[[tool.mypy.overrides]]
+module = [
+    "akshare",
+    "requests",
+    "dotenv",
+    "pydantic",
+    "pandas",
+]
+ignore_missing_imports = true

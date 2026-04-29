@@ -15,9 +15,13 @@ def send_signal_email(subject: str, body: str) -> None:
 
     if not all([host, user, password, mail_to]):
         raise RuntimeError("邮件配置不完整，请先填写 .env")
+    assert host is not None
+    assert user is not None
+    assert password is not None
+    assert mail_to is not None
 
     msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = Header(subject, "utf-8")
+    msg["Subject"] = Header(subject, "utf-8")  # type: ignore[assignment]
     msg["From"] = user
     msg["To"] = mail_to
 

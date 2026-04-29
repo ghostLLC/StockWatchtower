@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from analyzer import SignalDecision
 from config_loader import BASE_DIR
@@ -15,14 +16,14 @@ def _ensure_registry_dir() -> None:
     REGISTRY_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
-def _load_registry() -> dict:
+def _load_registry() -> Any:
     _ensure_registry_dir()
     if not REGISTRY_PATH.exists():
         return {"signals": {}}
     return json.loads(REGISTRY_PATH.read_text(encoding="utf-8"))
 
 
-def _save_registry(registry: dict) -> None:
+def _save_registry(registry: dict[str, Any]) -> None:
     _ensure_registry_dir()
     REGISTRY_PATH.write_text(json.dumps(registry, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -31,9 +32,9 @@ def _signal_key(decision: SignalDecision) -> str:
     return f"{decision.action}|{decision.symbol}"
 
 
-def _prune_old_records(registry: dict, now: datetime) -> dict:
+def _prune_old_records(registry: dict[str, Any], now: datetime) -> dict[str, Any]:
     cutoff = now - timedelta(days=30)
-    kept: dict[str, dict] = {}
+    kept: dict[str, Any] = {}
     for key, value in registry.get("signals", {}).items():
         last_sent_at = value.get("last_sent_at")
         if not last_sent_at:
