@@ -2,7 +2,7 @@
 
 A股中线交易监控系统。盘前用 LLM 分析隔夜讯息 + 全球市场，盘中用规则引擎盯价格走势，有调仓信号时发邮件通知。
 
-[![CI](https://github.com/ghostLLC/stock-watchtower/actions/workflows/ci.yml/badge.svg)](https://github.com/ghostLLC/stock-watchtower/actions/workflows/ci.yml)
+[![CI](https://github.com/ghostLLC/StockWatchtower/actions/workflows/ci.yml/badge.svg)](https://github.com/ghostLLC/StockWatchtower/actions/workflows/ci.yml)
 
 ## 运行模式
 
@@ -16,7 +16,7 @@ A股中线交易监控系统。盘前用 LLM 分析隔夜讯息 + 全球市场�
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/ghostLLC/stock-watchtower.git
+git clone https://github.com/ghostLLC/StockWatchtower.git
 cd stock-watchtower
 
 # 2. 安装依赖（开发依赖也装上）
@@ -24,7 +24,7 @@ pip install -r requirements.txt mypy pytest
 
 # 3. 验证开发环境
 mypy src/                        # 类型检查，应该零错误
-python -m pytest tests/ -v       # 61 个测试全部通过
+python -m pytest tests/ -v       # 全部测试通过
 
 # 4. 配置
 cp .env.example .env            # 填入 LLM API 和 QQ 邮箱配置
@@ -61,9 +61,20 @@ python src/dashboard_server.py  # Web 控制面板 → http://127.0.0.1:8765
 3. **建仓筛选** — 观察池中当日涨幅 ≥2.5% 且站上 MA20 且月涨幅为正的标的，按动量排序
 4. **去重排序** — 同 (action, symbol) 仅保留一条，按紧急度排序
 
-## 邮件信号去重
+## 邮件信号去重与分级
 
-同一动作 + 同一标的在 180 分钟内不重复发信（可通过 `strategy.json` 中 `max_same_signal_cooldown_minutes` 调整）。
+同一动作 + 同一标的在 180 分钟内不重复发信（可通过 `strategy.json` 中 `max_same_signal_cooldown_minutes` 调整）。去重注册表受文件锁保护，防止并发巡检绕过冷却。
+
+高紧急信号即时发送；中低紧急信号汇集到每日摘要，在收盘窗口（11:25–11:30、14:55–15:00）合并为单封邮件发送。
+
+## 监控告警
+
+除规则引擎外，还包含专项监控：
+
+- **日内急跌告警** — 持仓盘中跌幅超过阈值（默认 -5%）立即触发高优先级邮件
+- **异常放量检测** — 基于 20 日均成交额计算量比，≥3 倍放量发出方向性告警
+- **北向资金** — 通过沪深股通净买卖数据研判当日外资流向（大幅流入/流出/均衡）
+- **龙虎榜匹配** — 每日龙虎榜与持仓+自选交叉比对，识别机构异动
 
 ## 计划任务
 
