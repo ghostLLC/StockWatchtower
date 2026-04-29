@@ -1,0 +1,17 @@
+.env
+data/
+logs/
+reports/
+.omc/
+.git/
+.github/
+tests/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+README.md
+pyproject.toml
+.pre-commit-config.yaml
+run.bat
+run_dashboard.bat

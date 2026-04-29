@@ -251,6 +251,13 @@
   </div>
 
   <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const TOKEN = urlParams.get('token') || sessionStorage.getItem('token') || '';
+    if (TOKEN) sessionStorage.setItem('token', TOKEN);
+    function apiUrl(path) {
+      return TOKEN ? path + (path.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(TOKEN) : path;
+    }
+
     const state = {
       configs: null,
       tasks: null,
@@ -312,14 +319,14 @@
               <div><strong>${item.name}</strong></div>
               <div class="muted">${new Date(item.modified * 1000).toLocaleString('zh-CN', { hour12: false })}</div>
             </div>
-            <a href="${item.path}" target="_blank">打开报告</a>
+            <a href="${apiUrl(item.path)}" target="_blank">打开报告</a>
           </div>
         `).join('')
         : '<div class="muted">暂无报告。</div>';
     }
 
     async function refreshState() {
-      const res = await fetch('/api/state');
+      const res = await fetch(apiUrl('/api/state'));
       const data = await res.json();
       if (!data.ok) throw new Error(data.message || '加载失败');
       state.configs = data.configs;
@@ -342,7 +349,7 @@
         watchlist: JSON.parse(editors.watchlist.value),
         strategy: JSON.parse(editors.strategy.value),
       };
-      const res = await fetch('/api/configs', {
+      const res = await fetch(apiUrl('/api/configs'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -354,7 +361,7 @@
     }
 
     async function runOnce() {
-      const res = await fetch('/api/run-once', {
+      const res = await fetch(apiUrl('/api/run-once'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
@@ -366,7 +373,7 @@
     }
 
     async function handleTaskAction(task, action) {
-      const res = await fetch('/api/task-action', {
+      const res = await fetch(apiUrl('/api/task-action'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ task, action }),

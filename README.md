@@ -78,29 +78,35 @@ python src/dashboard_server.py  # Web 控制面板 → http://127.0.0.1:8765
 ## 技术架构
 
 ```
-main.py
-  ├─ scheduler.py            → 判断盘前/盘中/闭市
+src/
+  ├─ main.py                    → 入口 + 流程编排
+  ├─ logging_setup.py           → 日志配置（文件轮转 + 控制台）
+  ├─ scheduler.py               → 判断盘前/盘中/闭市
+  ├─ config_loader.py           → 配置读写 + 校验
   ├─ fetchers/
-  │   ├─ market_data.py      → 行情采集（akshare → 东方财富降级 → 日线缓存）
-  │   ├─ news_fetcher.py     → 新闻采集 + 全球指数 + 龙虎榜匹配
-  │   └─ capital_flow.py     → 北向资金流向
-  ├─ analyzer.py             → 规则引擎 + LLM 分析
+  │   ├─ market_data.py         → 行情采集
+  │   ├─ news_fetcher.py        → 新闻 + 全球指数 + 龙虎榜
+  │   └─ capital_flow.py        → 北向资金流向
+  ├─ analyzer.py                → 规则引擎 + LLM 分析
   ├─ notifier/
-  │   ├─ signal_registry.py  → 信号去重 + 冷却期管理
-  │   └─ emailer.py          → QQ 邮箱 SMTP（高紧急即时发送，中低紧急收盘汇总）
-  ├─ dashboard_server.py     → Web 控制面板（127.0.0.1:8765）
-  └─ tests/
-      ├─ test_scheduler.py       → 时段判断测试
-      ├─ test_analyzer.py        → 规则引擎测试
-      ├─ test_config_loader.py   → 配置读写测试
-      └─ test_signal_registry.py → 去重逻辑测试
+  │   ├─ signal_registry.py     → 信号去重 + 文件锁
+  │   └─ emailer.py             → QQ 邮箱 SMTP（即时 + 收盘汇总）
+  ├─ dashboard_server.py        → Web 控制面板（含 Token 鉴权）
+  └─ tests/                     → 单元测试覆盖核心模块
 ```
 
 ## 开发
 
 ```bash
+# 首次设置
+pip install pytest mypy pre-commit pytest-cov
+pre-commit install
+
 # 运行测试
 python -m pytest tests/ -v
+
+# 覆盖率报告
+python -m pytest tests/ --cov=src --cov-report=term-missing
 
 # 类型检查
 mypy src/
@@ -116,7 +122,26 @@ mypy src/
 - `requests` — HTTP 请求
 - `pydantic` — 数据校验
 
-开发依赖：`pytest`、`mypy`
+开发依赖：`pytest`、`mypy`、`pre-commit`、`pytest-cov`
+
+## Docker
+
+```bash
+# 构建镜像
+docker compose build
+
+# 运行单次巡检
+docker compose run --rm watchtower
+
+# 启动控制面板
+docker compose up -d dashboard
+# 访问 http://127.0.0.1:8765
+
+# 停止
+docker compose down
+```
+
+> Windows 计划任务（schtasks）在容器中不可用。Docker 方式推荐在 Linux 服务器或 macOS 上使用，通过宿主机 cron 定时触发。
 
 ## 环境变量（.env）
 
@@ -130,3 +155,4 @@ mypy src/
 | `SMTP_USER` | 发件邮箱 |
 | `SMTP_PASS` | 邮箱授权码 |
 | `MAIL_TO` | 收件邮箱 |
+| `DASHBOARD_TOKEN` | 控制面板访问令牌（可选，留空则跳过鉴权） |

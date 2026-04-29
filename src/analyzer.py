@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 from dataclasses import dataclass
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -728,7 +731,7 @@ def analyze_with_llm(
     try:
         from openai import OpenAI
     except ImportError:
-        print("[LLM] openai not installed, skipping LLM analysis.")
+        logger.warning("[LLM] openai not installed, skipping LLM analysis.")
         return []
 
     client = OpenAI(
@@ -754,5 +757,5 @@ def analyze_with_llm(
             return []
         return _parse_llm_decisions(content, portfolio, strategy)
     except Exception as exc:
-        print(f"[LLM] API call failed: {exc}")
+        logger.error("[LLM] API call failed: %s", exc)
         return []

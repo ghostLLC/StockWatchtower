@@ -1,23 +1,26 @@
+# 环境变量 / 密钥
+.env
+
+# 运行时数据
+data/
+logs/
+reports/
+
 # Python
 __pycache__/
 *.pyc
 *.pyo
-*.pyd
-.venv/
-venv/
+.pytest_cache/
+.mypy_cache/
 
-# Secrets
-.env
+# OMC 运行态
+.omc/
 
-# Runtime outputs
-logs/
-reports/
-data/
-
-# Claude Code
+# Claude Code 本地配置
 .claude/
 
-# OS / editor
-.DS_Store
-Thumbs.db
-
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

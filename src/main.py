@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -8,11 +9,14 @@ import json as _json
 from datetime import time as _time
 
 from analyzer import evaluate_market_snapshot, analyze_with_llm, SignalDecision
-from config_loader import BASE_DIR, CONFIG_DIR, bootstrap_environment, load_json
+from config_loader import BASE_DIR, CONFIG_DIR, bootstrap_environment, load_json, validate_portfolio, validate_watchlist, validate_strategy
 from fetchers.capital_flow import fetch_north_flow_context
 from fetchers.market_data import fetch_market_snapshot
 from fetchers.news_fetcher import fetch_dragon_tiger_matches, fetch_pre_market_context
+from logging_setup import configure_logging
 from scheduler import get_session_type
+
+logger = logging.getLogger(__name__)
 
 try:
     from notifier.emailer import send_signal_email
@@ -32,6 +36,13 @@ def load_runtime_configs() -> tuple[dict[str, Any], dict[str, Any], dict[str, An
     portfolio = load_json(CONFIG_DIR / "portfolio.json")
     watchlist = load_json(CONFIG_DIR / "watchlist.json")
     strategy = load_json(CONFIG_DIR / "strategy.json")
+    for issues, label in [
+        (validate_portfolio(portfolio), "portfolio"),
+        (validate_watchlist(watchlist), "watchlist"),
+        (validate_strategy(strategy), "strategy"),
+    ]:
+        for issue in issues:
+            logger.warning("Config [%s]: %s", label, issue)
     return portfolio, watchlist, strategy
 
 
@@ -157,9 +168,9 @@ def _send_daily_summary() -> None:
     try:
         send_signal_email("[每日信号汇总] 非紧急信号合集", "\n".join(lines))
         path.unlink()
-        print("Daily summary sent.")
+        logger.info("Daily summary sent.")
     except Exception as exc:
-        print(f"Daily summary failed: {exc}")
+        logger.error("Daily summary failed: %s", exc)
 
 
 def _merge_decisions(primary: list[SignalDecision], secondary: list[SignalDecision]) -> list[SignalDecision]:
@@ -183,7 +194,7 @@ def _process_decisions(decisions: list[SignalDecision], snapshot: dict[str, Any]
             f"数据源：{snapshot.get('data_sources', {})}\n"
         )
         save_report(report)
-        print("No trade signal.")
+        logger.info("No trade signal.")
         return
 
     report_lines = [
@@ -239,11 +250,12 @@ def _process_decisions(decisions: list[SignalDecision], snapshot: dict[str, Any]
         ])
 
     save_report("\n".join(report_lines))
-    print("Trade signal generated.")
+    logger.info("Trade signal generated; %d signals processed.", len(decisions))
 
 
 def main() -> None:
     bootstrap_environment()
+    configure_logging()
     ensure_runtime_dirs()
     portfolio, watchlist, strategy = load_runtime_configs()
 
@@ -251,7 +263,7 @@ def main() -> None:
     if session_type == "closed":
         report = "# 本次巡检\n\n结论：当前不在A股交易时段，跳过巡检。\n"
         save_report(report)
-        print("Not in trading session.")
+        logger.info("Not in trading session.")
         return
 
     try:
@@ -263,7 +275,7 @@ def main() -> None:
             f"原因：{exc}\n"
         )
         save_report(report)
-        print(f"Market data fetch failed: {exc}")
+        logger.error("Market data fetch failed: %s", exc)
         return
 
     # --- Pre-market: LLM-driven analysis with news context ---
@@ -287,7 +299,7 @@ def main() -> None:
                 "结论：LLM分析未产生交易信号，维持现有仓位不变。",
             ]
             save_report("\n".join(report_lines))
-            print("Pre-market: no signals from LLM.")
+            logger.info("Pre-market: no signals from LLM.")
             return
 
         decisions = llm_decisions

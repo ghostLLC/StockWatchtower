@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
 import subprocess
 import sys
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from config_loader import BASE_DIR, CONFIG_DIR, load_json, save_json
 from scheduler import get_session_type
+
+logger = logging.getLogger(__name__)
 
 HOST = "127.0.0.1"
 PORT = 8765
@@ -20,6 +24,8 @@ TASK_NAMES = {
     "am": "stock-watchtower-am",
     "pm": "stock-watchtower-pm",
 }
+
+DASHBOARD_TOKEN = os.getenv("DASHBOARD_TOKEN", "")
 
 
 def _load_configs() -> dict[str, Any]:
@@ -121,6 +127,17 @@ def _run_once() -> dict[str, Any]:
 class DashboardHandler(BaseHTTPRequestHandler):
     server_version = "StockWatchtowerDashboard/1.0"
 
+    def _check_auth(self) -> bool:
+        if not DASHBOARD_TOKEN:
+            return True
+        parsed = urlparse(self.path)
+        params = parse_qs(parsed.query)
+        token = params.get("token", [None])[0]
+        if token == DASHBOARD_TOKEN:
+            return True
+        self._send_json({"ok": False, "message": "Unauthorized"}, status=401)
+        return False
+
     def _send_json(self, payload: dict[str, Any], status: int = 200) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -143,6 +160,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return json.loads(raw.decode("utf-8"))
 
     def do_GET(self) -> None:
+        if not self._check_auth():
+            return
         parsed = urlparse(self.path)
         if parsed.path == "/":
             return self._send_file(WEB_DIR / "dashboard.html", "text/html; charset=utf-8")
@@ -170,6 +189,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         return self._send_json({"ok": False, "message": "Not found"}, status=404)
 
     def do_POST(self) -> None:
+        if not self._check_auth():
+            return
         parsed = urlparse(self.path)
         try:
             payload = self._read_json_body()
@@ -204,7 +225,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
 def main() -> None:
     WEB_DIR.mkdir(parents=True, exist_ok=True)
     server = ThreadingHTTPServer((HOST, PORT), DashboardHandler)
-    print(f"Dashboard running at http://{HOST}:{PORT}")
+    logger.info("Dashboard running at http://%s:%s", HOST, PORT)
     server.serve_forever()
 
 
