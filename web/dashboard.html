@@ -77,7 +77,7 @@
     }
     .task-grid {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
+      grid-template-columns: repeat(3, 1fr);
       gap: 12px;
     }
     .mini {
@@ -153,6 +153,10 @@
       justify-content: space-between;
       margin-bottom: 14px;
     }
+    @media (max-width: 1200px) {
+      .hero, .grid { grid-template-columns: 1fr; }
+      .task-grid { grid-template-columns: repeat(2, 1fr); }
+    }
     @media (max-width: 1080px) {
       .hero, .grid { grid-template-columns: 1fr; }
       .task-grid { grid-template-columns: 1fr; }
@@ -185,6 +189,16 @@
           <span class="muted">不用手敲 schtasks 了</span>
         </div>
         <div class="task-grid">
+          <div class="mini">
+            <h3>盘前分析</h3>
+            <div id="preStatus" class="status warn">加载中</div>
+            <div class="kv" id="preInfo"></div>
+            <div class="actions">
+              <button class="ok" data-task="pre" data-action="enable">启用</button>
+              <button class="danger" data-task="pre" data-action="disable">禁用</button>
+              <button class="secondary" data-task="pre" data-action="run">立即运行</button>
+            </div>
+          </div>
           <div class="mini">
             <h3>上午盘</h3>
             <div id="amStatus" class="status warn">加载中</div>
@@ -294,7 +308,7 @@
     }
 
     function renderTasks(tasks) {
-      ['am', 'pm'].forEach((key) => {
+      ['pre', 'am', 'pm'].forEach((key) => {
         const task = tasks[key];
         const badge = taskBadge(task);
         const statusEl = document.getElementById(`${key}Status`);

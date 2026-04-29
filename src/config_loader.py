@@ -43,6 +43,20 @@ def validate_portfolio(portfolio: dict[str, Any]) -> list[str]:
             w = pos["current_weight"]
             if not isinstance(w, (int, float)) or w < 0 or w > 1:
                 issues.append(f"positions[{i}]: current_weight={w} out of [0,1]")
+        elif "weight" in pos:
+            w = pos["weight"]
+            if not isinstance(w, (int, float)) or w < 0 or w > 1:
+                issues.append(f"positions[{i}]: weight={w} out of [0,1]")
+        if "current_weight" in pos and "weight" in pos:
+            cw = pos["current_weight"]
+            w2 = pos["weight"]
+            try:
+                if float(cw) != float(w2):
+                    issues.append(
+                        f"positions[{i}]: 'current_weight'={cw} differs from 'weight'={w2}, using current_weight"
+                    )
+            except (TypeError, ValueError):
+                pass
     return issues
 
 

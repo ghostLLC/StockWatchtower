@@ -21,6 +21,7 @@ PORT = 8765
 WEB_DIR = BASE_DIR / "web"
 REPORTS_DIR = BASE_DIR / "reports"
 TASK_NAMES = {
+    "pre": "stock-watchtower-pre",
     "am": "stock-watchtower-am",
     "pm": "stock-watchtower-pm",
 }

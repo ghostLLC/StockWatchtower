@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import time
@@ -23,20 +24,62 @@ class _FileLock:
 
     def acquire(self, timeout: float = 5.0) -> bool:
         deadline = time.monotonic() + timeout
+        self.lock_path.parent.mkdir(parents=True, exist_ok=True)
         while True:
             try:
                 self._fd = os.open(str(self.lock_path), os.O_CREAT | os.O_EXCL | os.O_RDWR)
+                lock_data = json.dumps({
+                    "pid": os.getpid(),
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),
+                })
+                os.write(self._fd, lock_data.encode("utf-8"))
                 return True
             except FileExistsError:
                 if time.monotonic() > deadline:
-                    # stale lock — try to break it
-                    try:
-                        os.remove(str(self.lock_path))
-                    except OSError:
-                        pass
+                    # stale lock — check if owning process is still alive
+                    pid = self._read_lock_pid()
+                    if pid is not None and not self._is_pid_alive(pid):
+                        try:
+                            os.remove(str(self.lock_path))
+                        except OSError:
+                            pass
+                    elif pid is None:
+                        # cannot read lock file, fall back to old behavior
+                        try:
+                            os.remove(str(self.lock_path))
+                        except OSError:
+                            pass
                     if time.monotonic() > deadline + 2:
                         return False
                 time.sleep(0.05)
+
+    def _read_lock_pid(self) -> int | None:
+        try:
+            content = self.lock_path.read_text(encoding="utf-8")
+            data = json.loads(content)
+            return data.get("pid")
+        except Exception:
+            return None
+
+    def _is_pid_alive(self, pid: int) -> bool:
+        if pid <= 0:
+            return False
+        if os.name == "nt":
+            try:
+                kernel32 = ctypes.windll.kernel32
+                handle = kernel32.OpenProcess(1, 0, pid)
+                if handle == 0:
+                    return False
+                kernel32.CloseHandle(handle)
+                return True
+            except Exception:
+                return False
+        else:
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                return False
 
     def release(self) -> None:
         if self._fd is not None:

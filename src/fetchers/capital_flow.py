@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import math
-from typing import Any
+from time import sleep
+from typing import Any, Callable
 
 import akshare as ak
 
@@ -16,12 +17,26 @@ def _safe_float(val: Any) -> float:
         return 0.0
 
 
+def _retry_call(fn: Callable[..., Any], *args: Any, retries: int = 3, delay: float = 1.2, **kwargs: Any) -> Any:
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                sleep(delay * attempt)
+    if last_error:
+        raise last_error
+    raise RuntimeError("未知调用错误")
+
+
 def fetch_north_flow() -> dict[str, Any]:
     result: dict[str, Any] = {"沪股通": None, "深股通": None, "合计净买入": 0.0, "notes": []}
 
     for connect in ("沪股通", "深股通"):
         try:
-            df = ak.stock_hsgt_hist_em(symbol=connect)
+            df = _retry_call(ak.stock_hsgt_hist_em, symbol=connect, retries=3, delay=1.2)
             if df is None or df.empty:
                 result["notes"].append(f"{connect}: 无数据")
                 continue

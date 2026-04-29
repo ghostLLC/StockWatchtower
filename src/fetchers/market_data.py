@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import concurrent.futures
+import logging
 from pathlib import Path
 from time import sleep
 from typing import Any, Callable
@@ -121,24 +123,33 @@ def _fetch_em_quote(secid: str) -> dict[str, Any]:
     return data
 
 
-def _fetch_stock_realtime_quotes_fallback(symbols: list[str]) -> list[dict[str, Any]]:
-    quotes: list[dict[str, Any]] = []
-    for symbol in symbols:
+def _fetch_stock_realtime_quotes_eastmoney(symbols: list[str]) -> list[dict[str, Any]]:
+    def _fetch_one(symbol: str) -> dict[str, Any]:
         secid = _to_secid(symbol)
         data = _retry_call(_fetch_em_quote, secid, retries=2, delay=0.8)
-        quotes.append(
-            {
-                "code": symbol,
-                "name": data.get("f58", ""),
-                "latest": _safe_price(data.get("f43"), scale=100),
-                "change_pct": _safe_price(data.get("f170"), scale=100) or 0.0,
-                "turnover": data.get("f48"),
-                "amplitude": _safe_price(data.get("f171"), scale=100) or 0.0,
-                "high": _safe_price(data.get("f44"), scale=100),
-                "low": _safe_price(data.get("f45"), scale=100),
-                "source": "eastmoney_fallback",
-            }
-        )
+        return {
+            "code": symbol,
+            "name": data.get("f58", ""),
+            "latest": _safe_price(data.get("f43"), scale=100),
+            "change_pct": _safe_price(data.get("f170"), scale=100) or 0.0,
+            "turnover": data.get("f48"),
+            "amplitude": _safe_price(data.get("f171"), scale=100) or 0.0,
+            "high": _safe_price(data.get("f44"), scale=100),
+            "low": _safe_price(data.get("f45"), scale=100),
+            "source": "eastmoney_primary",
+        }
+
+    quotes: list[dict[str, Any]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(_fetch_one, symbol): symbol for symbol in symbols}
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                quotes.append(future.result())
+            except Exception as exc:
+                logging.getLogger(__name__).debug(
+                    "Per-symbol fetch failed for %s: %s",
+                    futures.get(future, "unknown"), exc,
+                )
     return quotes
 
 
@@ -146,9 +157,12 @@ def _fetch_stock_realtime_quotes(symbols: list[str]) -> tuple[list[dict[str, Any
     if not symbols:
         return [], "none"
     try:
-        return _fetch_stock_realtime_quotes_akshare(symbols), "akshare_primary"
+        quotes = _fetch_stock_realtime_quotes_eastmoney(symbols)
+        if not quotes:
+            raise RuntimeError("per-symbol fetch returned no results")
+        return quotes, "eastmoney_primary"
     except Exception:
-        return _fetch_stock_realtime_quotes_fallback(symbols), "eastmoney_fallback"
+        return _fetch_stock_realtime_quotes_akshare(symbols), "akshare_primary"
 
 
 def _fetch_index_snapshot_akshare() -> dict[str, Any]:
@@ -257,6 +271,7 @@ def _build_symbol_snapshot(item: dict[str, Any], realtime_map: dict[str, dict[st
     return {
         "code": symbol,
         "name": item.get("name", symbol),
+        "market": item.get("market", ""),
         "board": item.get("board", "unknown"),
         "sector": item.get("sector", ""),
         "reason": item.get("reason", ""),

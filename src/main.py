@@ -186,6 +186,7 @@ def _merge_decisions(primary: list[SignalDecision], secondary: list[SignalDecisi
 
 def _process_decisions(decisions: list[SignalDecision], snapshot: dict[str, Any], strategy: dict[str, Any]) -> None:
     cooldown_minutes = int(strategy.get("max_same_signal_cooldown_minutes", 180))
+    send_only_on_action = strategy.get("send_only_on_action", True)
 
     if not decisions:
         report = (
@@ -210,7 +211,7 @@ def _process_decisions(decisions: list[SignalDecision], snapshot: dict[str, Any]
 
         if send_signal_email is not None and should_send_signal is not None and record_sent_signal is not None:
             allowed, reason = should_send_signal(decision, cooldown_minutes)
-            if allowed and is_high:
+            if allowed and (is_high or not send_only_on_action):
                 try:
                     send_signal_email(f"[交易信号] {decision.summary}", build_email_body(decision))
                     record_sent_signal(decision)
@@ -223,8 +224,12 @@ def _process_decisions(decisions: list[SignalDecision], snapshot: dict[str, Any]
             else:
                 email_status = f"已去重，未发送（{reason}）"
         elif send_signal_email is not None:
-            if is_high:
-                email_status = "邮件模块可用，但去重模块未加载"
+            if is_high or not send_only_on_action:
+                try:
+                    send_signal_email(f"[交易信号] {decision.summary}", build_email_body(decision))
+                    email_status = "已发送（去重模块未加载）"
+                except Exception as exc:
+                    email_status = f"发送失败：{exc}"
             else:
                 _queue_daily_signal(decision)
                 email_status = "已加入每日汇总（去重模块未加载）"
@@ -259,7 +264,7 @@ def main() -> None:
     ensure_runtime_dirs()
     portfolio, watchlist, strategy = load_runtime_configs()
 
-    session_type = get_session_type()
+    session_type = get_session_type(strategy=strategy)
     if session_type == "closed":
         report = "# 本次巡检\n\n结论：当前不在A股交易时段，跳过巡检。\n"
         save_report(report)
@@ -281,8 +286,10 @@ def main() -> None:
     # --- Pre-market: LLM-driven analysis with news context ---
     if session_type == "pre_market":
         news_context = fetch_pre_market_context(portfolio, watchlist)
-        news_context["north_flow"] = fetch_north_flow_context()
-        news_context["dragon_tiger"] = fetch_dragon_tiger_matches(portfolio, watchlist)
+        if strategy.get("monitoring", {}).get("north_flow_enabled", True):
+            news_context["north_flow"] = fetch_north_flow_context()
+        if strategy.get("monitoring", {}).get("dragon_tiger_enabled", True):
+            news_context["dragon_tiger"] = fetch_dragon_tiger_matches(portfolio, watchlist)
         llm_decisions = analyze_with_llm(snapshot, news_context, portfolio, watchlist, strategy)
 
         if not llm_decisions:
@@ -313,12 +320,14 @@ def main() -> None:
     if llm_config.get("in_session_enabled") and _should_run_in_session_llm(strategy):
         try:
             news_context = fetch_pre_market_context(portfolio, watchlist)
-            news_context["north_flow"] = fetch_north_flow_context()
-            news_context["dragon_tiger"] = fetch_dragon_tiger_matches(portfolio, watchlist)
+            if strategy.get("monitoring", {}).get("north_flow_enabled", True):
+                news_context["north_flow"] = fetch_north_flow_context()
+            if strategy.get("monitoring", {}).get("dragon_tiger_enabled", True):
+                news_context["dragon_tiger"] = fetch_dragon_tiger_matches(portfolio, watchlist)
             llm_decisions = analyze_with_llm(snapshot, news_context, portfolio, watchlist, strategy)
             decisions = _merge_decisions(decisions, llm_decisions)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[LLM] in-session analysis skipped: %s", exc)
 
     _process_decisions(decisions, snapshot, strategy)
 

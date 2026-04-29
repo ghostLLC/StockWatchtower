@@ -109,6 +109,28 @@ class TestRecordSentSignal:
         assert registry_path.exists()
 
 
+class TestPruneOldRecords:
+    def test_old_records_are_pruned(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Records older than 30 days should be pruned, allowing a new send."""
+        signal_registry.REGISTRY_PATH = tmp_path / "registry.json"
+
+        # Fake: current time is now
+        now = datetime(2026, 4, 29, 10, 0, 0)
+        monkeypatch.setattr(signal_registry, "datetime", _FakeDatetime(now))
+
+        decision = _make_decision()
+        signal_registry.record_sent_signal(decision)
+
+        # Fake: 31 days later (past 30-day prune window)
+        future = datetime(2026, 5, 30, 10, 0, 0)
+        monkeypatch.setattr(signal_registry, "datetime", _FakeDatetime(future))
+
+        result, msg = signal_registry.should_send_signal(decision, cooldown_minutes=180)
+        assert result is True
+        # After pruning the old record, this should be treated as "first send"
+        assert "首次" in msg
+
+
 class _FakeDatetime:
     """A callable that returns a fixed datetime, with now() classmethod."""
 

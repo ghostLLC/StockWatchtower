@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from time import sleep
+from typing import Any, Callable
 
 import akshare as ak
 import requests
@@ -25,18 +26,21 @@ def _safe_float(value: Any, scale: float = 1.0) -> float:
 
 def _fetch_global_index(secid: str) -> dict[str, Any] | None:
     try:
-        resp = requests.get(
-            EASTMONEY_QUOTE_URL,
-            params={
-                "secid": secid,
-                "fields": "f58,f43,f170",
-                "fltt": 2,
-                "invt": 2,
-            },
-            timeout=10,
-            headers={"User-Agent": "Mozilla/5.0"},
-        )
-        resp.raise_for_status()
+        def _do_request() -> Any:
+            resp = requests.get(
+                EASTMONEY_QUOTE_URL,
+                params={
+                    "secid": secid,
+                    "fields": "f58,f43,f170",
+                    "fltt": 2,
+                    "invt": 2,
+                },
+                timeout=10,
+                headers={"User-Agent": "Mozilla/5.0"},
+            )
+            resp.raise_for_status()
+            return resp
+        resp = _retry_call(_do_request)
         data = resp.json().get("data")
         if not data or data.get("f43") is None:
             return None
@@ -50,6 +54,20 @@ def _fetch_global_index(secid: str) -> dict[str, Any] | None:
         return None
 
 
+def _retry_call(fn: Callable[..., Any], *args: Any, retries: int = 3, delay: float = 1.2, **kwargs: Any) -> Any:
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as exc:
+            last_error = exc
+            if attempt < retries:
+                sleep(delay * attempt)
+    if last_error:
+        raise last_error
+    raise RuntimeError("未知调用错误")
+
+
 def fetch_global_market() -> dict[str, Any]:
     result: dict[str, Any] = {}
     for name, secid in GLOBAL_INDICES.items():
@@ -61,7 +79,7 @@ def fetch_global_market() -> dict[str, Any]:
 
 def fetch_market_news(limit: int = 20) -> list[dict[str, Any]]:
     try:
-        df = ak.stock_info_global_em()
+        df = _retry_call(ak.stock_info_global_em)
         if df is None or df.empty:
             return []
         cols = list(df.columns)
@@ -88,7 +106,7 @@ def fetch_stock_news(symbols: list[str], limit: int = 5) -> dict[str, list[dict[
     for symbol in symbols:
         code = symbol.split(".", 1)[0]
         try:
-            df = ak.stock_news_em(symbol=code)
+            df = _retry_call(ak.stock_news_em, symbol=code)
             if df is None or df.empty:
                 result[symbol] = []
                 continue
@@ -111,7 +129,7 @@ def fetch_dragon_tiger_matches(
     portfolio: dict[str, Any], watchlist: dict[str, Any]
 ) -> list[dict[str, Any]]:
     try:
-        df = ak.stock_lhb_detail_em()
+        df = _retry_call(ak.stock_lhb_detail_em)
     except Exception:
         return []
 

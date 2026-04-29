@@ -37,13 +37,20 @@ class PortfolioRiskState:
     sector_weights: dict[str, float]
 
 
-def _format_price_zone(latest: Any) -> str:
+def _format_price_zone(latest: Any, action: str = "") -> str:
     if latest in (None, "", 0):
         return "待结合盘中价格确认"
     try:
         latest_val = float(latest)
-        low = round(latest_val * 0.985, 2)
-        high = round(latest_val * 1.01, 2)
+        if action in ("buy", "add"):
+            low = round(latest_val * 0.97, 2)
+            high = round(latest_val * 1.01, 2)
+        elif action in ("sell", "reduce", "take_profit"):
+            low = round(latest_val * 0.985, 2)
+            high = round(latest_val * 1.03, 2)
+        else:
+            low = round(latest_val * 0.985, 2)
+            high = round(latest_val * 1.01, 2)
         return f"{low} - {high}"
     except Exception:
         return "待结合盘中价格确认"
@@ -59,6 +66,7 @@ def _is_tech_like(item: dict[str, Any]) -> bool:
 
 
 def _position_weight(item: dict[str, Any]) -> float:
+    # current_weight is the canonical field per validation; weight is a legacy fallback.
     for key in ["current_weight", "weight"]:
         value = item.get(key)
         if value is None or value == "":
@@ -211,7 +219,7 @@ def _append_portfolio_risk_decisions(
                     reason=f"当前单票估算仓位约 {weight:.0%}，高于单票上限 {max_single_weight:.0%}，建议分批回落到上限附近。",
                     urgency="medium",
                     suggested_weight_change=-excess,
-                    price_zone=_format_price_zone(pos.get("latest")),
+                    price_zone=_format_price_zone(pos.get("latest"), "trim"),
                     current_weight=weight,
                     target_weight=max_single_weight,
                     sector=_sector_name(pos),
@@ -262,7 +270,7 @@ def _append_position_management_decisions(
                     reason=f"{name} 当前跌幅 {change_pct:.2f}%，已触发日内急跌阈值 {intraday_crash_pct}%，请立即关注是否止损或减仓。",
                     urgency="high",
                     suggested_weight_change=-max_add_weight,
-                    price_zone=_format_price_zone(pos.get("latest")),
+                    price_zone=_format_price_zone(pos.get("latest"), "alert"),
                     current_weight=weight,
                     sector=sector,
                     execution_plan="优先查看基本面/消息面是否有突发利空，若利空确认应果断减仓；若无明显利空，可观察20日均线支撑再决定。",
@@ -282,7 +290,7 @@ def _append_position_management_decisions(
                     reason=f"{name} 当前成交额为20日均量的 {vol_ratio:.1f} 倍（{direction}），出现异常放量，需判断是大资金进出还是事件驱动。",
                     urgency="high" if change_pct < -2.0 else "medium",
                     suggested_weight_change=0.0,
-                    price_zone=_format_price_zone(pos.get("latest")),
+                    price_zone=_format_price_zone(pos.get("latest"), "alert"),
                     current_weight=weight,
                     sector=sector,
                     execution_plan="先观察放量方向能否持续：若放量上涨且站稳分时均线，可能是突破信号；若放量下跌，应警惕机构出货。",
@@ -300,7 +308,7 @@ def _append_position_management_decisions(
                     reason="指数进入明显风险区，优先控制组合回撤。",
                     urgency="high",
                     suggested_weight_change=-max_add_weight,
-                    price_zone=_format_price_zone(pos.get("latest")),
+                    price_zone=_format_price_zone(pos.get("latest"), "reduce"),
                     current_weight=weight,
                     sector=sector,
                     execution_plan="先减仓 5% 左右观察，若指数继续走弱再继续回收仓位。",
@@ -319,7 +327,7 @@ def _append_position_management_decisions(
                     reason="个股跌破中期均线且盘中走弱，需要优先回避趋势破坏。",
                     urgency="high",
                     suggested_weight_change=-min(weight, max_add_weight if weight > 0 else max_add_weight),
-                    price_zone=_format_price_zone(pos.get("latest")),
+                    price_zone=_format_price_zone(pos.get("latest"), "sell"),
                     current_weight=weight,
                     sector=sector,
                     execution_plan="若盘中弱势延续，优先卖出一半以上仓位；若次日仍无法修复，可继续退出。",
@@ -338,7 +346,7 @@ def _append_position_management_decisions(
                     reason=f"近20日涨幅约 {monthly_change_pct:.2f}% ，已达到较高收益区，但价格相对20日均线优势收窄，适合锁定部分利润。",
                     urgency="medium",
                     suggested_weight_change=-max_add_weight,
-                    price_zone=_format_price_zone(pos.get("latest")),
+                    price_zone=_format_price_zone(pos.get("latest"), "take_profit"),
                     current_weight=weight,
                     sector=sector,
                     execution_plan="先兑现 5% 仓位，剩余仓位继续观察是否还能维持趋势。",
@@ -357,7 +365,7 @@ def _append_position_management_decisions(
                     reason=f"标的已有较好浮盈（近20日约 {monthly_change_pct:.2f}%），但盘中回撤明显，适合先兑现一部分仓位。",
                     urgency="medium",
                     suggested_weight_change=-max_add_weight,
-                    price_zone=_format_price_zone(pos.get("latest")),
+                    price_zone=_format_price_zone(pos.get("latest"), "take_profit"),
                     current_weight=weight,
                     sector=sector,
                     execution_plan="若回撤继续扩大，先兑现 5%，保留核心仓等待二次确认。",
@@ -376,7 +384,7 @@ def _append_position_management_decisions(
                     reason="指数环境偏积极，个股站稳20日均线之上且中期趋势延续，可考虑小幅加仓强化优势仓位。",
                     urgency="low",
                     suggested_weight_change=max_add_weight,
-                    price_zone=_format_price_zone(pos.get("latest")),
+                    price_zone=_format_price_zone(pos.get("latest"), "add"),
                     current_weight=weight,
                     sector=sector,
                     execution_plan="优先以小仓位试探性加仓，不追高，一次不超过 5%。",
@@ -447,7 +455,7 @@ def _append_open_position_decisions(
             reason=f"标的短中期趋势同步转强，且当前组合仍有约 {remaining_capacity:.0%} 仓位空间；指数环境：{index_view}",
             urgency="medium",
             suggested_weight_change=suggested_weight,
-            price_zone=_format_price_zone(top.get("latest")),
+            price_zone=_format_price_zone(top.get("latest"), "buy"),
             current_weight=0.0,
             sector=sector,
             execution_plan="优先分2次建仓：先试仓一半，确认趋势延续后再补齐剩余计划仓位。",
@@ -469,10 +477,35 @@ def _deduplicate_decisions(decisions: list[SignalDecision]) -> list[SignalDecisi
     return deduped
 
 
+def _filter_by_strategy(items: list[dict[str, Any]], strategy: dict[str, Any]) -> list[dict[str, Any]]:
+    """Filter items by boards_allowed and markets_allowed from strategy config.
+
+    If the config fields are absent or empty, all items pass through unchanged.
+    """
+    boards_allowed = strategy.get("boards_allowed")
+    markets_allowed = strategy.get("markets_allowed")
+
+    if not boards_allowed and not markets_allowed:
+        return list(items)
+
+    filtered: list[dict[str, Any]] = []
+    for item in items:
+        if boards_allowed:
+            board = item.get("board", "")
+            if board not in boards_allowed:
+                continue
+        if markets_allowed:
+            market = item.get("market", "")
+            if market not in markets_allowed:
+                continue
+        filtered.append(item)
+    return filtered
+
+
 def evaluate_market_snapshot(snapshot: dict[str, Any], portfolio: dict[str, Any], watchlist: dict[str, Any], strategy: dict[str, Any]) -> list[SignalDecision]:
     decisions: list[SignalDecision] = []
-    positions = snapshot.get("positions", [])
-    watch_items = snapshot.get("watchlist", [])
+    positions = _filter_by_strategy(snapshot.get("positions", []), strategy)
+    watch_items = _filter_by_strategy(snapshot.get("watchlist", []), strategy)
 
     risk_state = _build_portfolio_risk_state(positions)
     _append_portfolio_risk_decisions(decisions, positions, risk_state, strategy)
@@ -651,7 +684,7 @@ def _parse_llm_decisions(content: str, portfolio: dict[str, Any], strategy: dict
         json_text = code_block.group(1).strip()
 
     if not json_text.startswith('{'):
-        match = re.search(r'\{.*\}', content, re.DOTALL)
+        match = re.search(r'\{.*?\}', content, re.DOTALL)
         if match:
             json_text = match.group(0)
 

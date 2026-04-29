@@ -75,6 +75,35 @@ class TestGetSessionType:
         assert get_session_type(make_dt(1, 9, 29)) == "closed"
 
 
+class TestGetSessionTypeWithStrategy:
+    def test_uses_strategy_weekdays(self) -> None:
+        """When strategy specifies only Mon-Wed, Thursday should be closed."""
+        strategy = {"trading_session": {"weekdays": [1, 2, 3]}}
+        thu_10 = make_dt(4, 10, 0)  # Thursday
+        assert get_session_type(thu_10, strategy) == "closed"
+
+    def test_uses_strategy_sessions(self) -> None:
+        """Custom session hours are respected."""
+        strategy = {"trading_session": {
+            "weekdays": [1, 2, 3, 4, 5],
+            "sessions": [["10:00", "11:00"], ["14:00", "15:00"]],
+            "pre_market_sessions": [["09:00", "09:30"]],
+        }}
+        assert get_session_type(make_dt(1, 9, 15), strategy) == "pre_market"
+        assert get_session_type(make_dt(1, 9, 35), strategy) == "closed"
+        assert get_session_type(make_dt(1, 10, 30), strategy) == "in_session"
+        assert get_session_type(make_dt(1, 13, 0), strategy) == "closed"
+
+    def test_missing_trading_session_falls_back(self) -> None:
+        """Strategy without trading_session uses defaults (Monday 10:00 is in_session)."""
+        assert get_session_type(make_dt(1, 10, 0), {}) == "in_session"
+
+    def test_empty_sessions_treated_as_closed(self) -> None:
+        """Empty session list means always closed."""
+        strategy = {"trading_session": {"weekdays": [1, 2, 3, 4, 5], "sessions": [], "pre_market_sessions": []}}
+        assert get_session_type(make_dt(1, 10, 0), strategy) == "closed"
+
+
 class TestGetSessionStatus:
     @pytest.fixture
     def strategy(self) -> dict:
