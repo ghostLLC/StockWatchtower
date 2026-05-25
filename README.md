@@ -1,6 +1,6 @@
 # Stock Watchtower
 
-A股中线交易监控系统。盘前用 LLM 分析隔夜讯息 + 全球市场，盘中用规则引擎盯价格走势，有调仓信号时发邮件通知。
+A股中线交易监控系统。盘前用 Agent 自主检索金融新闻 + LLM 综合研判，盘中用规则引擎盯价格走势，有调仓信号时发邮件通知。
 
 [![CI](https://github.com/ghostLLC/StockWatchtower/actions/workflows/ci.yml/badge.svg)](https://github.com/ghostLLC/StockWatchtower/actions/workflows/ci.yml)
 
@@ -8,7 +8,7 @@ A股中线交易监控系统。盘前用 LLM 分析隔夜讯息 + 全球市场�
 
 | 时段 | 频率 | 分析方式 |
 |---|---|---|
-| 盘前 09:15–09:25 | 每交易日一次 | 采集隔夜全球市场 + 财经新闻 + 个股公告 + 龙虎榜 → LLM 综合分析 → 邮件 |
+| 盘前 09:15–09:25 | 每交易日一次 | Agent 自主检索（Web 搜索 + 全球市场 + 北向资金 + 个股公告 + 龙虎榜）→ LLM 交叉验证 → 邮件 |
 | 盘中 09:30–15:00 | 每 15 分钟 | 实时行情 → 规则引擎 + LLM 增强（每小时一次）→ 邮件 |
 | 其他时间 | — | 直接退出 |
 
@@ -52,6 +52,7 @@ python src/dashboard_server.py   # Web 控制面板 → http://127.0.0.1:8765
 | 配置段 | 字段 | 作用 |
 |---|---|---|
 | `trading_session` | `weekdays`, `sessions`, `pre_market_sessions` | 调度器读取的交易时段，缺失则使用 A 股默认时段 |
+| `agent` | `max_rounds`, `fallback_to_prefetch` | Agent 最大搜索轮数（默认 8）和失败降级开关 |
 | `llm_analysis` | `enabled`, `in_session_enabled`, `cooldown`, `temperature` | LLM 分析开关与参数 |
 | `monitoring` | `north_flow_enabled`, `dragon_tiger_enabled` | 控制北向资金和龙虎榜数据采集 |
 | `alert_rules` | `intraday_crash_pct`, `volume_spike_ratio` | 日内急跌和异常放量告警阈值 |
@@ -87,6 +88,18 @@ python src/dashboard_server.py   # Web 控制面板 → http://127.0.0.1:8765
 - **北向资金** — 通过沪深股通净买卖数据研判当日外资流向（大幅流入/流出/均衡）。可由 `monitoring.north_flow_enabled` 控制开关
 - **龙虎榜匹配** — 每日龙虎榜与持仓+自选交叉比对，识别机构异动。可由 `monitoring.dragon_tiger_enabled` 控制开关
 
+## 盘前 Agent 自主检索
+
+盘前阶段不再预取全部新闻灌入 prompt，而是让 LLM Agent 自主决定检索策略：
+
+- **初始上下文**只包含市场快照（指数 + 持仓/自选技术指标），不含新闻
+- Agent 获得 6 个检索工具：`search_financial_news`（DDG 网页搜索）、`get_stock_news`（akshare 个股新闻）、`get_global_market_snapshot`、`get_north_flow`、`get_market_news`、`get_dragon_tiger_matches`
+- LLM 根据持仓结构自主判断搜索方向——异常放量的个股需要搜公告、重仓板块需要搜政策、大跌需要搜宏观消息
+- 搜索 → 反馈 → 再搜索，最多 8 轮，信息充足后输出 JSON 交易决策
+- 如果底层模型不支持 function calling，自动降级为旧版 pre-fetch 路径（`agent.fallback_to_prefetch: true`）
+
+与旧版的关键区别：LLM 不再被动消化我们预先挑好的新闻，而是像分析师一样自己决定「该查什么」。
+
 ## 计划任务
 
 推荐通过 Windows 任务计划程序配置三个触发器：
@@ -105,10 +118,13 @@ src/
   ├─ logging_setup.py           → 日志配置（文件轮转 + 控制台）
   ├─ scheduler.py               → 判断盘前/盘中/闭市（读取 strategy.json 交易时段配置）
   ├─ config_loader.py           → 配置读写 + 校验（持仓/观察池/策略）
+  ├─ agents/
+  │   ├─ pre_market_agent.py    → 盘前 Agent 循环（LLM 自主调用工具检索 → 交叉验证 → 决策）
+  │   └─ tools.py               → 6 个检索工具（Web 搜索 / 个股新闻 / 全球市场 / 北向资金 / 市场新闻 / 龙虎榜）
   ├─ fetchers/
   │   ├─ market_data.py         → 行情采集（并发 eastmoney API 为主，akshare 批量兜底）
-  │   ├─ news_fetcher.py        → 新闻 + 全球指数 + 龙虎榜（统一重试机制）
-  │   └─ capital_flow.py        → 北向资金流向（统一重试机制）
+  │   ├─ news_fetcher.py        → 新闻 + 全球指数 + 龙虎榜（Agent 工具的底层实现，兼作降级路径）
+  │   └─ capital_flow.py        → 北向资金流向（Agent 工具的底层实现，兼作降级路径）
   ├─ analyzer.py                → 规则引擎 + LLM 分析（操作感知价区、标的过滤）
   ├─ notifier/
   │   ├─ signal_registry.py     → 信号去重 + PID 文件锁
@@ -138,7 +154,7 @@ mypy src/
 # CI 在 push/PR 时自动执行 mypy + pytest
 ```
 
-当前测试覆盖：134 个测试，7 个测试文件，覆盖 analyzer、config_loader、scheduler、signal_registry、market_data、capital_flow、news_fetcher。
+当前测试覆盖：143 个测试，7 个测试文件，覆盖 analyzer、config_loader、scheduler、signal_registry、market_data、capital_flow、news_fetcher。
 
 ## 依赖
 
@@ -147,6 +163,7 @@ mypy src/
 - `python-dotenv` — 环境变量加载
 - `requests` — HTTP 请求
 - `pydantic` — 数据校验
+- `duckduckgo_search` — Agent Web 搜索（可选，未安装时降级为 akshare 新闻过滤）
 
 开发依赖：`pytest`、`mypy`、`pre-commit`、`pytest-cov`
 

@@ -47,6 +47,10 @@
     "max_tech_weight": 0.55,
     "max_sector_weight": 0.35
   },
+  "agent": {
+    "max_rounds": 8,
+    "fallback_to_prefetch": true
+  },
   "monitoring": {
     "north_flow_enabled": true,
     "dragon_tiger_enabled": true

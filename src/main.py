@@ -8,6 +8,7 @@ from typing import Any
 import json as _json
 from datetime import time as _time
 
+from agents import run_pre_market_agent
 from analyzer import evaluate_market_snapshot, analyze_with_llm, SignalDecision
 from config_loader import BASE_DIR, CONFIG_DIR, bootstrap_environment, load_json, validate_portfolio, validate_watchlist, validate_strategy
 from fetchers.capital_flow import fetch_north_flow_context
@@ -283,33 +284,23 @@ def main() -> None:
         logger.error("Market data fetch failed: %s", exc)
         return
 
-    # --- Pre-market: LLM-driven analysis with news context ---
+    # --- Pre-market: agent-driven analysis with autonomous search ---
     if session_type == "pre_market":
-        news_context = fetch_pre_market_context(portfolio, watchlist)
-        if strategy.get("monitoring", {}).get("north_flow_enabled", True):
-            news_context["north_flow"] = fetch_north_flow_context()
-        if strategy.get("monitoring", {}).get("dragon_tiger_enabled", True):
-            news_context["dragon_tiger"] = fetch_dragon_tiger_matches(portfolio, watchlist)
-        llm_decisions = analyze_with_llm(snapshot, news_context, portfolio, watchlist, strategy)
+        decisions = run_pre_market_agent(snapshot, portfolio, watchlist, strategy)
 
-        if not llm_decisions:
+        if not decisions:
             report_lines = [
                 "# 盘前分析",
                 "",
                 f"- 时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                f"- 全球市场：{news_context.get('global_markets', {})}",
-                f"- 北向资金：{news_context.get('north_flow', {}).get('summary', '无数据')}",
-                f"- 新闻条数：{len(news_context.get('market_news', []))}",
-                f"- 龙虎榜匹配：{len(news_context.get('dragon_tiger', []))} 条",
-                f"- 采集错误：{news_context.get('errors', [])}",
+                f"- 市场状态：{snapshot.get('market_state', 'unknown')}",
                 "",
-                "结论：LLM分析未产生交易信号，维持现有仓位不变。",
+                "结论：Agent分析未产生交易信号，维持现有仓位不变。",
             ]
             save_report("\n".join(report_lines))
-            logger.info("Pre-market: no signals from LLM.")
+            logger.info("Pre-market: no signals from agent.")
             return
 
-        decisions = llm_decisions
         _process_decisions(decisions, snapshot, strategy)
         return
 
