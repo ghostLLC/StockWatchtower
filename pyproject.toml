@@ -12,6 +12,7 @@ module = [
     "dotenv",
     "pydantic",
     "pandas",
+    "duckduckgo_search",
 ]
 ignore_missing_imports = true
 

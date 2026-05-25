@@ -162,7 +162,7 @@ def _run_agent_loop(
 
     # First call: check if the model supports tool calling
     try:
-        response = client.chat.completions.create(
+        response = client.chat.completions.create(  # type: ignore[call-overload]
             model=model,
             messages=messages,
             tools=TOOL_SCHEMAS,
@@ -213,7 +213,7 @@ def _run_agent_loop(
 
         # Continue the loop
         try:
-            response = client.chat.completions.create(
+            response = client.chat.completions.create(  # type: ignore[call-overload]
                 model=model,
                 messages=messages,
                 tools=TOOL_SCHEMAS,

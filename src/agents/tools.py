@@ -23,21 +23,17 @@ logger = logging.getLogger(__name__)
 # Web search
 # ---------------------------------------------------------------------------
 
-try:
-    from duckduckgo_search import DDGS
-
-    def _web_search(query: str, max_results: int = 10) -> list[dict[str, str]]:
-        try:
-            with DDGS() as ddgs:
-                results = list(ddgs.text(f"{query} 股票 新闻", max_results=max_results))
-                return [{"title": r["title"], "body": r["body"][:300], "href": r["href"]} for r in results]
-        except Exception:
-            return []
-
-except ImportError:
-    DDGS = None  # type: ignore[assignment]
-
-    def _web_search(query: str, max_results: int = 10) -> list[dict[str, str]]:  # noqa: F811
+def _web_search(query: str, max_results: int = 10) -> list[dict[str, str]]:
+    """Search the web via DuckDuckGo. Returns empty list on any failure."""
+    try:
+        from duckduckgo_search import DDGS
+    except ImportError:
+        return []
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(f"{query} 股票 新闻", max_results=max_results))
+            return [{"title": r["title"], "body": r["body"][:300], "href": r["href"]} for r in results]
+    except Exception:
         return []
 
 # ---------------------------------------------------------------------------
